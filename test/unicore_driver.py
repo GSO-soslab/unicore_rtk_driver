@@ -7,7 +7,8 @@ class UnicoreGPS:
 
     def __init__(self):
         try:
-            port_name = '/dev/tty.usbserial-DU0D6GOD'
+            # port_name = '/dev/tty.usbserial-DU0D6GOD'
+            port_name = '/dev/ttyUSB0'
             baud_rate = 115200
             self.ser = serial.Serial(port_name, baud_rate, timeout=1)
             self.ser.flush()  # Clear the input and output buffers
@@ -38,7 +39,7 @@ class UnicoreGPS:
             if(checksum == c_checksum):
 
                 #publish the nmea
-                # print(nmea_string)
+                print(nmea_string)
 
                 # Further split the data part by comma
                 data_fields = data[1:].split(',')
@@ -92,8 +93,8 @@ class UnicoreGPS:
         rtk_qf = float(data[4])
         rtk_sat_n = float(data[5])
 
-        print("unix time=" , rtk_unix_time, "sec")
-        print("heading=" , rtk_heading, "deg")
+        # print("unix time=" , rtk_unix_time, "sec")
+        # print("heading=" , rtk_heading, "deg")
 
 ##################################################################
 gps =UnicoreGPS()
