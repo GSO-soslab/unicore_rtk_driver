@@ -3,5 +3,5 @@ device: /dev/ttyUSB0
 baudrate: 115200
 
 # True: use the gps timestamp, False: use IO time when gps message arrived
-use_gps_time: False
+use_gnss_time: False
 

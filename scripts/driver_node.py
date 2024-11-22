@@ -8,12 +8,14 @@ from datetime import datetime, timezone
 import rospy
 from std_msgs.msg import Float32
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Quaternion, Vector3, TransformStamped
-from sensor_msgs.msg import NavSatFix
+from geometry_msgs.msg import Quaternion, Vector3, TransformStamped, PoseWithCovarianceStamped
+from sensor_msgs.msg import NavSatFix, NavSatStatus, TimeReference
 from nmea_msgs.msg import Sentence
 import tf
 import tf.transformations
 import tf2_ros
+
+import parser
 
 class UnicoreDriver:
     def __init__(self):
@@ -24,11 +26,7 @@ class UnicoreDriver:
 
         self.setup_serial()
 
-        ### some init
-        self.time_io = rospy.Time.now()
-        self.time_io_ready = False
-        self.time_gps = rospy.Time.now()
-        self.time_gps_ready = False
+        self.init()
 
     def get_params(self):
 
@@ -36,15 +34,23 @@ class UnicoreDriver:
         self.serial_port = rospy.get_param('~device', '/dev/ttyUSB0')
         self.serial_baudrate = rospy.get_param('~baudrate', 115200)
 
-        self.use_gps_time = rospy.get_param('~use_gps_time', False)
+        self.use_gnss_time = rospy.get_param('~use_gnss_time', False)
 
-        ### topics
+        ### ros
         self.heading_topic = rospy.get_param('~heading_topic', 'unicore/heading')
-        self.heading_odom_topic = rospy.get_param('~heading_odom_topic', 'unicore/heading_odom')
+        self.fix_topic = rospy.get_param('~fix_topic', 'unicore/fix')
         self.nmea_topic = rospy.get_param('~nmea_topic', 'unicore/nmea')
 
-        ### others
-        self.test_value = float(rospy.get_param('~test_value', '0.1'))
+        self.heading_frame_id = rospy.get_param('~heading_frame_id', 'world_ned')
+        self.gps_frame_id = rospy.get_param('~gps_frame_id', 'unicore_gps')
+
+        ### epe = estimated position error
+        self.default_epe_quality0 = rospy.get_param('~epe_quality0', 1000000)
+        self.default_epe_quality1 = rospy.get_param('~epe_quality1', 4.0)
+        self.default_epe_quality2 = rospy.get_param('~epe_quality2', 0.1)
+        self.default_epe_quality4 = rospy.get_param('~epe_quality4', 0.02)
+        self.default_epe_quality5 = rospy.get_param('~epe_quality5', 4.0)
+        self.default_epe_quality9 = rospy.get_param('~epe_quality9', 3.0)
 
     def setup_ros(self):
         """
@@ -52,9 +58,9 @@ class UnicoreDriver:
         """
 
         ### publihser
-        self.heading_pub = rospy.Publisher(self.heading_topic, Float32, queue_size=10)
-        self.heading_odom_pub = rospy.Publisher(self.heading_odom_topic, Odometry, queue_size=10)
+        self.heading_pub = rospy.Publisher(self.heading_topic, PoseWithCovarianceStamped, queue_size=10)
         self.nmea_pub = rospy.Publisher(self.nmea_topic, Sentence, queue_size=10)
+        self.fix_pub = rospy.Publisher(self.fix_topic, NavSatFix, queue_size=10)
 
         ### timer
         rospy.Timer(rospy.Duration(1.0/10.0), self.process)
@@ -76,6 +82,68 @@ class UnicoreDriver:
             rospy.logerr("Debug: Could not open serial port %s. Reason: %s", self.serial_port, e)
             exit(1)
 
+    def init(self):
+
+        ### some init
+        self.time_io = rospy.Time.now()
+        self.time_io_ready = False
+        self.time_gnss = rospy.Time.now()
+        self.time_gnss_ready = False
+
+        self.hdop = float("nan")
+
+        """Format for this dictionary is the fix type from a GGA message as the key, with
+        each entry containing a tuple consisting of a default estimated
+        position error, a NavSatStatus value, and a NavSatFix covariance value."""
+        self.gps_qualities = {
+            # Unknown
+            -1: [
+                self.default_epe_quality0,
+                NavSatStatus.STATUS_NO_FIX,
+                NavSatFix.COVARIANCE_TYPE_UNKNOWN
+            ],
+            # Invalid
+            0: [
+                self.default_epe_quality0,
+                NavSatStatus.STATUS_NO_FIX,
+                NavSatFix.COVARIANCE_TYPE_UNKNOWN
+            ],
+            # SPS
+            1: [
+                self.default_epe_quality1,
+                NavSatStatus.STATUS_FIX,
+                NavSatFix.COVARIANCE_TYPE_APPROXIMATED
+            ],
+            # DGPS
+            2: [
+                self.default_epe_quality2,
+                NavSatStatus.STATUS_SBAS_FIX,
+                NavSatFix.COVARIANCE_TYPE_APPROXIMATED
+            ],
+            # RTK Fix
+            4: [
+                self.default_epe_quality4,
+                NavSatStatus.STATUS_GBAS_FIX,
+                NavSatFix.COVARIANCE_TYPE_APPROXIMATED
+            ],
+            # RTK Float
+            5: [
+                self.default_epe_quality5,
+                NavSatStatus.STATUS_GBAS_FIX,
+                NavSatFix.COVARIANCE_TYPE_APPROXIMATED
+            ],
+            # WAAS
+            9: [
+                self.default_epe_quality9,
+                NavSatStatus.STATUS_GBAS_FIX,
+                NavSatFix.COVARIANCE_TYPE_APPROXIMATED
+            ]
+        }
+
+        self.fix_msg = NavSatFix()
+
+        self.heading_msg = PoseWithCovarianceStamped()
+
     def read_nmea(self):
         """
         This function will read a line from serial stream data
@@ -86,10 +154,11 @@ class UnicoreDriver:
             data = self.ser.readline().decode('utf-8').strip()
 
             ### save the IO timestamp only if this is the first sentence
-            if not self.time_gps_ready and not self.time_io_ready:
+            # if not self.time_gnss_ready and not self.time_io_ready:
+            if not self.time_io_ready:
                 self.time_io_ready = True
                 self.time_io = rospy.Time.now()
-                # print("The real IO Time now: %s" % self.time_io.to_sec())
+                print("The real IO Time now: %s" % self.time_io.to_sec())
 
             # print("IO Time now: %s" % rospy.Time.now().to_sec())
 
@@ -97,7 +166,7 @@ class UnicoreDriver:
         else:
             return False
 
-    def check_nmea(self, nmea_string):
+    def check_nmea_string(self, nmea_string):
         """
         This function check the nmea string, parse the data
         """
@@ -111,24 +180,10 @@ class UnicoreDriver:
             #checksum check
             c_checksum = f"{self.calculate_checksum(data):02X}"
             if(checksum == c_checksum):
-
-                #publish the nmea
-                # print(nmea_string)
-
-                # Further split the data part by comma
-                data_fields = data[1:].split(',')
-
-                # Extract the header and data fields
-                header = '$' + data_fields[0]
-                data = data_fields[1:]
-                return header, data
+                return True
             else:
-                print("Checksum check failed")
-                return False, False
-        else:
-            # print("Invalid NMEA string")
-            return False, False
-        
+                return False
+                            
     def calculate_checksum(self, nmea_string):
         """
         This function calculate the checksum.
@@ -141,108 +196,139 @@ class UnicoreDriver:
             checksum ^= ord(char)
         return checksum
             
-    def parse_time(self, data):
-        """
-        This function will parse the "GNRMC" message
-        """        
-
-        # get second
-        hhmmss_ss = str(data[0])
-        hhmmss, fractional_seconds = hhmmss_ss.split(".")
-
-        # get date
-        old_date = data[8]
-        new_date = "20" + str(old_date[4:6]) + str(old_date[2:4]) + str(old_date[0:2])
-        
-        # Combine the date and time into a single string (without fractional seconds)
-        date_time_str = new_date + hhmmss
-
-        # Convert the combined string into a datetime object
-        date_time_obj = datetime.strptime(date_time_str, '%Y%m%d%H%M%S')
-
-        # Add the fractional seconds to the datetime object
-        date_time_obj = date_time_obj.replace(microsecond=int(fractional_seconds) * 10000)
-
-        # Convert the datetime object to Unix timestamp (including fractional seconds)
-        gps_unix_time = date_time_obj.timestamp()
-
-        # save this time
-        self.time_gps = rospy.Time.from_sec(gps_unix_time)
-        self.time_gps_ready = True
-
-        # print("GPS Time now: %s sec" % gps_unix_time)
-
-    def parse_heading(self, data):
-        """
-        This function will parse the "GNHPR" message
-        """
-        # parse the data
-        rtk_heading = float(data[1])
-        rtk_pitch = float(data[2])
-        rtk_qf = float(data[4])
-        rtk_sat_n = float(data[5])      
-
-        ### publish the heading odometry message
-        heading_odom_msg = Odometry()
-
-        # determine which timestamp to use
-        if self.time_gps_ready and self.use_gps_time:
-            heading_odom_msg.header.stamp = self.time_gps
-
-        else:
-            heading_odom_msg.header.stamp = self.time_io
-
-        heading_odom_msg.header.frame_id = "world_ned"
-        heading_odom_msg.child_frame_id = "unicore_gps"
-        heading_odom_msg.pose.pose.orientation = self.rpy_to_quaternion(0,0, rtk_heading * math.pi / 180.0)
-        self.heading_odom_pub.publish(heading_odom_msg)
-
-        ### publish the heading message
-        heading_msg = Float32()
-        heading_msg.data = rtk_heading
-
-        # publish if it has Subscribers
-        if self.heading_pub.get_num_connections() > 0:
-            self.heading_pub.publish(heading_msg)
-
-        # GNHPR is the last sentence, we can set to "not_ready"
-        self.time_gps_ready = False
-        self.time_io_ready = False
-
     def send_sentence(self, data):
 
-        msg = Sentence()
-        msg.header.stamp = self.time_io
-        msg.header.frame_id = "unicore_gps"
-        msg.sentence = data
-        self.nmea_pub.publish(msg)
+        if self.nmea_pub.get_num_connections() > 0:
+            msg = Sentence()
+            msg.header.stamp = rospy.Time.now()
+            msg.header.frame_id = "unicore_gps"
+            msg.sentence = data
+            self.nmea_pub.publish(msg)
 
     def process(self, event):
 
-        # read one line
+        ### read one line
         nmea_string = self.read_nmea()
-        if(nmea_string is not False):
+        if(nmea_string is False):
+            return False
 
-            header,cdata = self.check_nmea(nmea_string)
+        ### check checksum
+        if not self.check_nmea_string(nmea_string):
+            rospy.logwarn(
+                "Received a sentence with an invalid checksum. " +
+                "Sentence was: %s" % repr(nmea_string))
+            return False
+    
+        ### parse a sentence
+        parsed_sentence = parser.parse_nmea_sentence(nmea_string)
+        if not parsed_sentence:
+            rospy.logdebug(
+                "Failed to parse NMEA sentence. Sentence was: %s" % 
+                nmea_string)
+            return False
+        
+        print(parsed_sentence)
+        
+        if 'GGA' in parsed_sentence:
+            data = parsed_sentence['GGA']
 
-            # parse the header and data items
-            if header == '$GNRMC':
-                self.parse_time(cdata)
-            
-            # parse the heading message
-            if header == '$GNHPR':
-                self.parse_heading(cdata)
-            # send as ros nmea sentence
+            ### get fix
+            fix_type = data['fix_type']
+            if not (fix_type in self.gps_qualities):
+                fix_type = -1
+            gps_qual = self.gps_qualities[fix_type]
+            ### get lat            
+            latitude = data['latitude']
+            if data['latitude_direction'] == 'S':
+                latitude = -latitude
+            ### get lon
+            longitude = data['longitude']
+            if data['longitude_direction'] == 'W':
+                longitude = -longitude            
+            ### get alt: altitude is above ellipsoid, so adjust for mean-sea-level
+            altitude = data['altitude'] + data['mean_sea_level']            
+            ### get Horizontal Dilution of Precision (HDOP)
+            self.hdop = data['hdop']
+
+            ### assign fix msg: status
+            self.fix_msg.status.status = gps_qual[1]
+            self.fix_msg.status.service = NavSatStatus.SERVICE_GPS
+            ### assign fix msg: cov type
+            self.fix_msg.position_covariance_type = gps_qual[2]
+            ### assign fix msg: lat/lon/alt
+            self.fix_msg.latitude = latitude
+            self.fix_msg.longitude = longitude
+            self.fix_msg.altitude = altitude
+
+        elif 'RMC' in parsed_sentence:
+            data = parsed_sentence['RMC']
+
+            ### get GNSS time
+            if self.use_gnss_time:
+                if math.isnan(data['utc_time'][0]):
+                    rospy.logwarn("RMC: Time in the NMEA sentence is NOT valid")
+                    return False
+                else:
+                    self.time_gnss = rospy.Time(data['utc_time'][0], data['utc_time'][1])
+                    self.time_gnss_ready = True
+
+            ### assign timestamp
+            if self.time_gnss_ready and self.use_gnss_time:
+                self.fix_msg.header.stamp = self.time_gnss
             else:
-                self.send_sentence(nmea_string)
+                self.fix_msg.header.stamp = self.time_io
+            ### assign fix msg: frame id
+            self.fix_msg.header.frame_id = self.gps_frame_id
 
+        elif 'GST' in parsed_sentence:
+            data = parsed_sentence['GST']
+
+            ### get position estimation error
+            lon_std_dev = data['lon_std_dev']
+            lat_std_dev = data['lat_std_dev']
+            alt_std_dev = data['alt_std_dev']
+
+            ### assign fix msg: covariance
+            self.fix_msg.position_covariance[0] = (
+                self.hdop * lon_std_dev) ** 2
+            self.fix_msg.position_covariance[4] = (
+                self.hdop * lat_std_dev) ** 2
+            self.fix_msg.position_covariance[8] = (
+                2 * self.hdop * alt_std_dev) ** 2  # FIXME?         
+
+            ### publish fix
+            self.fix_pub.publish(self.fix_msg)
+
+        elif 'HPR' in parsed_sentence:
+            data = parsed_sentence['HPR']
+
+            ### assign heading msg: header
+            if self.time_gnss_ready and self.use_gnss_time:
+                self.heading_msg.header.stamp = self.time_gnss
+            else:
+                self.heading_msg.header.stamp = self.time_io            
+            self.heading_msg.header.frame_id = self.heading_frame_id
+            ### assign heading msg: pose
+            self.heading_msg.pose.pose.orientation = self.rpy_to_quaternion(
+                0,0, data['heading'] * math.pi / 180.0)
+            
+            ### publish heading
+            self.heading_pub.publish(self.heading_msg)
+
+            ### This the last sentence, we can set to "not_ready"
+            self.time_gnss_ready = False
+            self.time_io_ready = False
+
+        ### publish the NMEA
+        self.send_sentence(nmea_string)
+        
     def close(self):
         self.ser.close()
 
     def rpy_to_quaternion(self, r, p, y):
         quaternion = tf.transformations.quaternion_from_euler(r, p, y)
         return Quaternion(*quaternion)
-
+    
 def main():
 
     rospy.init_node("Unicore_RTK_Driver")
