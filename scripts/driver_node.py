@@ -1,15 +1,10 @@
 #!/usr/bin/env python3
 
 import serial
-import time
 import math
-from datetime import datetime, timezone
-
 import rospy
-from std_msgs.msg import Float32
-from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Quaternion, Vector3, TransformStamped, PoseWithCovarianceStamped
-from sensor_msgs.msg import NavSatFix, NavSatStatus, TimeReference
+from geometry_msgs.msg import Quaternion, PoseWithCovarianceStamped, TwistStamped
+from sensor_msgs.msg import NavSatFix, NavSatStatus
 from nmea_msgs.msg import Sentence
 import tf
 import tf.transformations
@@ -40,6 +35,7 @@ class UnicoreDriver:
         self.heading_topic = rospy.get_param('~heading_topic', 'unicore/heading')
         self.fix_topic = rospy.get_param('~fix_topic', 'unicore/fix')
         self.nmea_topic = rospy.get_param('~nmea_topic', 'unicore/nmea')
+        self.global_vel_topic = rospy.get_param('~global_vel_topic', 'unicore/global_velocity')
 
         self.heading_frame_id = rospy.get_param('~heading_frame_id', 'world_ned')
         self.gps_frame_id = rospy.get_param('~gps_frame_id', 'unicore_gps')
@@ -61,6 +57,7 @@ class UnicoreDriver:
         self.heading_pub = rospy.Publisher(self.heading_topic, PoseWithCovarianceStamped, queue_size=10)
         self.nmea_pub = rospy.Publisher(self.nmea_topic, Sentence, queue_size=10)
         self.fix_pub = rospy.Publisher(self.fix_topic, NavSatFix, queue_size=10)
+        self.global_vel_pub = rospy.Publisher(self.global_vel_topic, TwistStamped, queue_size=10)
 
         ### timer
         rospy.Timer(rospy.Duration(1.0/10.0), self.process)
@@ -91,6 +88,8 @@ class UnicoreDriver:
         self.time_gnss_ready = False
 
         self.hdop = float("nan")
+
+        self.valid_fix = False
 
         """Format for this dictionary is the fix type from a GGA message as the key, with
         each entry containing a tuple consisting of a default estimated
@@ -143,6 +142,8 @@ class UnicoreDriver:
         self.fix_msg = NavSatFix()
 
         self.heading_msg = PoseWithCovarianceStamped()
+
+        self.vel_msg = TwistStamped()
 
     def read_nmea(self):
         """
@@ -237,6 +238,7 @@ class UnicoreDriver:
             if not (fix_type in self.gps_qualities):
                 fix_type = -1
             gps_qual = self.gps_qualities[fix_type]
+            self.valid_fix = (fix_type > 0)
             ### get lat            
             latitude = data['latitude']
             if data['latitude_direction'] == 'S':
@@ -279,6 +281,18 @@ class UnicoreDriver:
                 self.fix_msg.header.stamp = self.time_io
             ### assign fix msg: frame id
             self.fix_msg.header.frame_id = self.gps_frame_id
+
+            if self.valid_fix:
+                ### assign vel msg: header
+                if self.time_gnss_ready and self.use_gnss_time:
+                    self.vel_msg.header.stamp = self.time_gnss
+                else:
+                    self.vel_msg.header.stamp = self.time_io            
+                self.vel_msg.header.frame_id = "world"
+                ### assign vel msg: data
+                self.vel_msg.twist.linear.x = data['speed'] * math.sin(data['true_course'])
+                self.vel_msg.twist.linear.y = data['speed'] * math.cos(data['true_course'])
+                self.global_vel_pub.publish(self.vel_msg)
 
         elif 'GST' in parsed_sentence:
             data = parsed_sentence['GST']
