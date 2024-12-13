@@ -19,8 +19,6 @@ class UnicoreDriver:
 
         self.setup_ros()
 
-        self.setup_serial()
-
         self.init()
 
     def get_params(self):
@@ -59,25 +57,15 @@ class UnicoreDriver:
         self.fix_pub = rospy.Publisher(self.fix_topic, NavSatFix, queue_size=10)
         self.global_vel_pub = rospy.Publisher(self.global_vel_topic, TwistStamped, queue_size=10)
 
+        ### setup the serial 
+        self.ser = serial.Serial(self.serial_port, self.serial_baudrate, timeout=1)
+        self.ser.flush()  
+
         ### timer
         rospy.Timer(rospy.Duration(1.0/10.0), self.process)
 
         ### tf
         self.tf_br = tf2_ros.TransformBroadcaster()
-
-    def setup_serial(self):
-        """
-        This function will be used for setup serial port
-        """
-
-        ### setup the serial 
-        try:
-            self.ser = serial.Serial(self.serial_port, self.serial_baudrate, timeout=1)
-            self.ser.flush()  
-
-        except serial.SerialException as e:
-            rospy.logerr("Debug: Could not open serial port %s. Reason: %s", self.serial_port, e)
-            exit(1)
 
     def init(self):
 
@@ -159,7 +147,7 @@ class UnicoreDriver:
             if not self.time_io_ready:
                 self.time_io_ready = True
                 self.time_io = rospy.Time.now()
-                print("The real IO Time now: %s" % self.time_io.to_sec())
+                # print("The real IO Time now: %s" % self.time_io.to_sec())
 
             # print("IO Time now: %s" % rospy.Time.now().to_sec())
 
@@ -207,6 +195,9 @@ class UnicoreDriver:
             self.nmea_pub.publish(msg)
 
     def process(self, event):
+        ### make sure serial is open
+        if not self.ser.is_open:
+            return False 
 
         ### read one line
         nmea_string = self.read_nmea()
@@ -228,7 +219,7 @@ class UnicoreDriver:
                 nmea_string)
             return False
         
-        print(parsed_sentence)
+        # print(parsed_sentence)
         
         if 'GGA' in parsed_sentence:
             data = parsed_sentence['GGA']
@@ -325,6 +316,8 @@ class UnicoreDriver:
             ### assign heading msg: pose
             self.heading_msg.pose.pose.orientation = self.rpy_to_quaternion(
                 0,0, data['heading'] * math.pi / 180.0)
+
+            # print(data['heading'])
             
             ### publish heading
             self.heading_pub.publish(self.heading_msg)
@@ -337,7 +330,8 @@ class UnicoreDriver:
         self.send_sentence(nmea_string)
         
     def close(self):
-        self.ser.close()
+        if self.ser.is_open:
+            self.ser.close()
 
     def rpy_to_quaternion(self, r, p, y):
         quaternion = tf.transformations.quaternion_from_euler(r, p, y)
