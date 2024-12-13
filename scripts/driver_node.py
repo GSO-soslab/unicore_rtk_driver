@@ -6,6 +6,7 @@ import rospy
 from geometry_msgs.msg import Quaternion, PoseWithCovarianceStamped, TwistStamped
 from sensor_msgs.msg import NavSatFix, NavSatStatus
 from nmea_msgs.msg import Sentence
+from std_msgs.msg import Float32
 import tf
 import tf.transformations
 import tf2_ros
@@ -34,6 +35,7 @@ class UnicoreDriver:
         self.fix_topic = rospy.get_param('~fix_topic', 'unicore/fix')
         self.nmea_topic = rospy.get_param('~nmea_topic', 'unicore/nmea')
         self.global_vel_topic = rospy.get_param('~global_vel_topic', 'unicore/global_velocity')
+        self.simple_heading_topic = rospy.get_param('~simple_heading_topic', 'unicore/simple_heading')
 
         self.heading_frame_id = rospy.get_param('~heading_frame_id', 'world_ned')
         self.gps_frame_id = rospy.get_param('~gps_frame_id', 'unicore_gps')
@@ -56,6 +58,7 @@ class UnicoreDriver:
         self.nmea_pub = rospy.Publisher(self.nmea_topic, Sentence, queue_size=10)
         self.fix_pub = rospy.Publisher(self.fix_topic, NavSatFix, queue_size=10)
         self.global_vel_pub = rospy.Publisher(self.global_vel_topic, TwistStamped, queue_size=10)
+        self.simple_heading_pub = rospy.Publisher(self.simple_heading_topic, Float32, queue_size=10)
 
         ### setup the serial 
         self.ser = serial.Serial(self.serial_port, self.serial_baudrate, timeout=1)
@@ -316,11 +319,14 @@ class UnicoreDriver:
             ### assign heading msg: pose
             self.heading_msg.pose.pose.orientation = self.rpy_to_quaternion(
                 0,0, data['heading'] * math.pi / 180.0)
-
+            ### assign heading for simple test
+            simple_heading_msg = Float32()
+            simple_heading_msg.data = data['heading']
             # print(data['heading'])
             
             ### publish heading
             self.heading_pub.publish(self.heading_msg)
+            self.simple_heading_pub.publish(self.simple_heading_msg)
 
             ### This the last sentence, we can set to "not_ready"
             self.time_gnss_ready = False
