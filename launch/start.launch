@@ -10,10 +10,10 @@
         <rosparam command="load" file="$(find unicore_rtk_driver)/config/param.yaml"/>
     </node>
 
-    <node ns="$(arg robot_name)" pkg="nmea_navsat_driver" type="nmea_topic_driver"
+    <!-- <node ns="$(arg robot_name)" pkg="nmea_navsat_driver" type="nmea_topic_driver"
           name="nmea_navsat_driver" output="screen">
 
         <remap from="nmea_sentence" to="unicore/nmea" />
-    </node>
+    </node> -->
 
 </launch>

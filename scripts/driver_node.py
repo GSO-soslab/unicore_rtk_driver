@@ -6,7 +6,7 @@ import rospy
 from geometry_msgs.msg import Quaternion, PoseWithCovarianceStamped, TwistStamped
 from sensor_msgs.msg import NavSatFix, NavSatStatus
 from nmea_msgs.msg import Sentence
-from std_msgs.msg import Float32
+from std_msgs.msg import Float32, String
 import tf
 import tf.transformations
 import tf2_ros
@@ -37,6 +37,8 @@ class UnicoreDriver:
         self.global_vel_topic = rospy.get_param('~global_vel_topic', 'unicore/global_velocity')
         self.simple_heading_topic = rospy.get_param('~simple_heading_topic', 'unicore/simple_heading')
 
+        self.tx_cmd_topic = rospy.get_param('~tx_cmd_topic', 'unicore/tx_cmd')
+
         self.heading_frame_id = rospy.get_param('~heading_frame_id', 'world_ned')
         self.gps_frame_id = rospy.get_param('~gps_frame_id', 'unicore_gps')
 
@@ -59,6 +61,9 @@ class UnicoreDriver:
         self.fix_pub = rospy.Publisher(self.fix_topic, NavSatFix, queue_size=10)
         self.global_vel_pub = rospy.Publisher(self.global_vel_topic, TwistStamped, queue_size=10)
         self.simple_heading_pub = rospy.Publisher(self.simple_heading_topic, Float32, queue_size=10)
+
+        ### subscriber
+        rospy.Subscriber(self.tx_cmd_topic, String, self.tx_cmd_callback)
 
         ### setup the serial 
         self.ser = serial.Serial(self.serial_port, self.serial_baudrate, timeout=1)
@@ -136,6 +141,11 @@ class UnicoreDriver:
 
         self.vel_msg = TwistStamped()
 
+        ### init the gps messages to be published
+        self.ser.write("UNIHEADINGA 1\r\n".encode())
+        ### example:
+        ### #UNIHEADINGA,97,GPS,UNKNOWN,1,234652000,0,0,18,2;INSUFFICIENT_OBS,NONE,0.0000,0.0000,0.0000,0.0000,0.0000,0.0000,"",0,0,0,0,0,00,0,0*5123dca3
+
     def read_nmea(self):
         """
         This function will read a line from serial stream data
@@ -197,6 +207,19 @@ class UnicoreDriver:
             msg.sentence = data
             self.nmea_pub.publish(msg)
 
+    def tx_cmd_callback(self, data):
+        """
+        This function is used for receive the 'Data output Commands' and send back to GPS
+
+        Format: "command rate"
+        Example: To publish [UNIHEADING] msg at 1 Hz and send "UNIHEADINGA 1"
+        """
+
+        rospy.loginfo("Received msg: %s", data.data)
+
+        cmd = data.data + "\r\n"
+        self.ser.write(cmd.encode())
+
     def process(self, event):
         ### make sure serial is open
         if not self.ser.is_open:
@@ -207,133 +230,134 @@ class UnicoreDriver:
         if(nmea_string is False):
             return False
 
-        ### check checksum
-        if not self.check_nmea_string(nmea_string):
-            rospy.logwarn(
-                "Received a sentence with an invalid checksum. " +
-                "Sentence was: %s" % repr(nmea_string))
-            return False
+        # ### check checksum
+        # if not self.check_nmea_string(nmea_string):
+        #     rospy.logwarn(
+        #         "Received a sentence with an invalid checksum. " +
+        #         "Sentence was: %s" % repr(nmea_string))
+        #     return False
     
-        ### parse a sentence
-        parsed_sentence = parser.parse_nmea_sentence(nmea_string)
-        if not parsed_sentence:
-            rospy.logdebug(
-                "Failed to parse NMEA sentence. Sentence was: %s" % 
-                nmea_string)
-            return False
+        # ### parse a sentence
+        # parsed_sentence = parser.parse_nmea_sentence(nmea_string)
+        # if not parsed_sentence:
+        #     rospy.logdebug(
+        #         "Failed to parse NMEA sentence. Sentence was: %s" % 
+        #         nmea_string)
+        #     return False
         
+        print(nmea_string)
         # print(parsed_sentence)
         
-        if 'GGA' in parsed_sentence:
-            data = parsed_sentence['GGA']
+        # if 'GGA' in parsed_sentence:
+        #     data = parsed_sentence['GGA']
 
-            ### get fix
-            fix_type = data['fix_type']
-            if not (fix_type in self.gps_qualities):
-                fix_type = -1
-            gps_qual = self.gps_qualities[fix_type]
-            self.valid_fix = (fix_type > 0)
-            ### get lat            
-            latitude = data['latitude']
-            if data['latitude_direction'] == 'S':
-                latitude = -latitude
-            ### get lon
-            longitude = data['longitude']
-            if data['longitude_direction'] == 'W':
-                longitude = -longitude            
-            ### get alt: altitude is above ellipsoid, so adjust for mean-sea-level
-            altitude = data['altitude'] + data['mean_sea_level']            
-            ### get Horizontal Dilution of Precision (HDOP)
-            self.hdop = data['hdop']
+        #     ### get fix
+        #     fix_type = data['fix_type']
+        #     if not (fix_type in self.gps_qualities):
+        #         fix_type = -1
+        #     gps_qual = self.gps_qualities[fix_type]
+        #     self.valid_fix = (fix_type > 0)
+        #     ### get lat            
+        #     latitude = data['latitude']
+        #     if data['latitude_direction'] == 'S':
+        #         latitude = -latitude
+        #     ### get lon
+        #     longitude = data['longitude']
+        #     if data['longitude_direction'] == 'W':
+        #         longitude = -longitude            
+        #     ### get alt: altitude is above ellipsoid, so adjust for mean-sea-level
+        #     altitude = data['altitude'] + data['mean_sea_level']            
+        #     ### get Horizontal Dilution of Precision (HDOP)
+        #     self.hdop = data['hdop']
 
-            ### assign fix msg: status
-            self.fix_msg.status.status = gps_qual[1]
-            self.fix_msg.status.service = NavSatStatus.SERVICE_GPS
-            ### assign fix msg: cov type
-            self.fix_msg.position_covariance_type = gps_qual[2]
-            ### assign fix msg: lat/lon/alt
-            self.fix_msg.latitude = latitude
-            self.fix_msg.longitude = longitude
-            self.fix_msg.altitude = altitude
+        #     ### assign fix msg: status
+        #     self.fix_msg.status.status = gps_qual[1]
+        #     self.fix_msg.status.service = NavSatStatus.SERVICE_GPS
+        #     ### assign fix msg: cov type
+        #     self.fix_msg.position_covariance_type = gps_qual[2]
+        #     ### assign fix msg: lat/lon/alt
+        #     self.fix_msg.latitude = latitude
+        #     self.fix_msg.longitude = longitude
+        #     self.fix_msg.altitude = altitude
 
-        elif 'RMC' in parsed_sentence:
-            data = parsed_sentence['RMC']
+        # elif 'RMC' in parsed_sentence:
+        #     data = parsed_sentence['RMC']
 
-            ### get GNSS time
-            if self.use_gnss_time:
-                if math.isnan(data['utc_time'][0]):
-                    rospy.logwarn("RMC: Time in the NMEA sentence is NOT valid")
-                    return False
-                else:
-                    self.time_gnss = rospy.Time(data['utc_time'][0], data['utc_time'][1])
-                    self.time_gnss_ready = True
+        #     ### get GNSS time
+        #     if self.use_gnss_time:
+        #         if math.isnan(data['utc_time'][0]):
+        #             rospy.logwarn("RMC: Time in the NMEA sentence is NOT valid")
+        #             return False
+        #         else:
+        #             self.time_gnss = rospy.Time(data['utc_time'][0], data['utc_time'][1])
+        #             self.time_gnss_ready = True
 
-            ### assign timestamp
-            if self.time_gnss_ready and self.use_gnss_time:
-                self.fix_msg.header.stamp = self.time_gnss
-            else:
-                self.fix_msg.header.stamp = self.time_io
-            ### assign fix msg: frame id
-            self.fix_msg.header.frame_id = self.gps_frame_id
+        #     ### assign timestamp
+        #     if self.time_gnss_ready and self.use_gnss_time:
+        #         self.fix_msg.header.stamp = self.time_gnss
+        #     else:
+        #         self.fix_msg.header.stamp = self.time_io
+        #     ### assign fix msg: frame id
+        #     self.fix_msg.header.frame_id = self.gps_frame_id
 
-            if self.valid_fix:
-                ### assign vel msg: header
-                if self.time_gnss_ready and self.use_gnss_time:
-                    self.vel_msg.header.stamp = self.time_gnss
-                else:
-                    self.vel_msg.header.stamp = self.time_io            
-                self.vel_msg.header.frame_id = "world"
-                ### assign vel msg: data
-                self.vel_msg.twist.linear.x = data['speed'] * math.sin(data['true_course'])
-                self.vel_msg.twist.linear.y = data['speed'] * math.cos(data['true_course'])
-                self.global_vel_pub.publish(self.vel_msg)
+        #     if self.valid_fix:
+        #         ### assign vel msg: header
+        #         if self.time_gnss_ready and self.use_gnss_time:
+        #             self.vel_msg.header.stamp = self.time_gnss
+        #         else:
+        #             self.vel_msg.header.stamp = self.time_io            
+        #         self.vel_msg.header.frame_id = "world"
+        #         ### assign vel msg: data
+        #         self.vel_msg.twist.linear.x = data['speed'] * math.sin(data['true_course'])
+        #         self.vel_msg.twist.linear.y = data['speed'] * math.cos(data['true_course'])
+        #         self.global_vel_pub.publish(self.vel_msg)
 
-        elif 'GST' in parsed_sentence:
-            data = parsed_sentence['GST']
+        # elif 'GST' in parsed_sentence:
+        #     data = parsed_sentence['GST']
 
-            ### get position estimation error
-            lon_std_dev = data['lon_std_dev']
-            lat_std_dev = data['lat_std_dev']
-            alt_std_dev = data['alt_std_dev']
+        #     ### get position estimation error
+        #     lon_std_dev = data['lon_std_dev']
+        #     lat_std_dev = data['lat_std_dev']
+        #     alt_std_dev = data['alt_std_dev']
 
-            ### assign fix msg: covariance
-            self.fix_msg.position_covariance[0] = (
-                self.hdop * lon_std_dev) ** 2
-            self.fix_msg.position_covariance[4] = (
-                self.hdop * lat_std_dev) ** 2
-            self.fix_msg.position_covariance[8] = (
-                2 * self.hdop * alt_std_dev) ** 2  # FIXME?         
+        #     ### assign fix msg: covariance
+        #     self.fix_msg.position_covariance[0] = (
+        #         self.hdop * lon_std_dev) ** 2
+        #     self.fix_msg.position_covariance[4] = (
+        #         self.hdop * lat_std_dev) ** 2
+        #     self.fix_msg.position_covariance[8] = (
+        #         2 * self.hdop * alt_std_dev) ** 2  # FIXME?         
 
-            ### publish fix
-            self.fix_pub.publish(self.fix_msg)
+        #     ### publish fix
+        #     self.fix_pub.publish(self.fix_msg)
 
-        elif 'HPR' in parsed_sentence:
-            data = parsed_sentence['HPR']
+        # elif 'HPR' in parsed_sentence:
+        #     data = parsed_sentence['HPR']
 
-            ### assign heading msg: header
-            if self.time_gnss_ready and self.use_gnss_time:
-                self.heading_msg.header.stamp = self.time_gnss
-            else:
-                self.heading_msg.header.stamp = self.time_io            
-            self.heading_msg.header.frame_id = self.heading_frame_id
-            ### assign heading msg: pose
-            self.heading_msg.pose.pose.orientation = self.rpy_to_quaternion(
-                0,0, data['heading'] * math.pi / 180.0)
-            ### assign heading for simple test
-            simple_heading_msg = Float32()
-            simple_heading_msg.data = data['heading']
-            # print(data['heading'])
+        #     ### assign heading msg: header
+        #     if self.time_gnss_ready and self.use_gnss_time:
+        #         self.heading_msg.header.stamp = self.time_gnss
+        #     else:
+        #         self.heading_msg.header.stamp = self.time_io            
+        #     self.heading_msg.header.frame_id = self.heading_frame_id
+        #     ### assign heading msg: pose
+        #     self.heading_msg.pose.pose.orientation = self.rpy_to_quaternion(
+        #         0,0, data['heading'] * math.pi / 180.0)
+        #     ### assign heading for simple test
+        #     simple_heading_msg = Float32()
+        #     simple_heading_msg.data = data['heading']
+        #     # print(data['heading'])
             
-            ### publish heading
-            self.heading_pub.publish(self.heading_msg)
-            self.simple_heading_pub.publish(self.simple_heading_msg)
+        #     ### publish heading
+        #     self.heading_pub.publish(self.heading_msg)
+        #     self.simple_heading_pub.publish(simple_heading_msg)
 
-            ### This the last sentence, we can set to "not_ready"
-            self.time_gnss_ready = False
-            self.time_io_ready = False
+        #     ### This the last sentence, we can set to "not_ready"
+        #     self.time_gnss_ready = False
+        #     self.time_io_ready = False
 
-        ### publish the NMEA
-        self.send_sentence(nmea_string)
+        # ### publish the NMEA
+        # self.send_sentence(nmea_string)
         
     def close(self):
         if self.ser.is_open:
