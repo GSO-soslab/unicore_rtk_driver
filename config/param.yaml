@@ -1,5 +1,5 @@
 # The usb device for unicore gps
-device: /dev/ttyUSB0
+device: /dev/ttyUSB3
 baudrate: 115200
 
 # True: use the gps timestamp, False: use IO time when gps message arrived
