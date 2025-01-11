@@ -2,6 +2,47 @@
 
 This is ROS1 driver for [H-RTK Unicore UM982 module](https://holybro.com/products/h-rtk-unicore-um982?srsltid=AfmBOor9B8UnQe8gZG0i5H9SFrWDkjocAbjg1wBmmKDetLk7dQbwZMtK).
 
+## TODO:
+- time info for gps message ?
+- check all the fix vaild before send out, for example: HPR msg
+- two group modes: NMEA or unicore ASCII string
+- parse the unicore UNIHEADINGA, 
+        - parse with cpp crc table: OK
+        - parse with cpp poly: TODO
+        - parse with py: TODO
+- parse unicore AGRICA
+
+#: sync
+UNIHEADINGA: Message
+97:CPUIDle
+GPS:TimeRef
+UNKNOWN:TimeStatus
+1:Wn
+920000:Ms
+0:reserved
+0:version
+18:Leap sec
+2:Output Delay
+;
+INSUFFICIENT_OBS:sol stat
+NONE:pos type
+0.0000:length
+0.0000:heading
+0.0000:pitch
+0.0000:Reserved
+0.0000:hdgstddev
+0.0000:ptchstddev
+"":stn id
+0:#SVs
+0:#solnSVs
+0:#obs
+0:#multi
+0:Reserved
+00:ext sol stat
+0:Galileo&BDS3 sig mask
+0:GPS, GLONASS and BDS2 sig mask
+
+
 ## published message:
 - heading message:
     - info: the true north heading, unit: degree
@@ -77,47 +118,6 @@ Fields
 <13> Age of differential GPS data record, Type 1 or Type 9. Null field when DGPS is not used.
 <14> Reference station ID, range 0000 to 4095. A null field when any reference station ID is selected and no corrections are received. See table below for a description of the field values.
 
-</pre>
-
-</details>
-
-<details>
-
-<summary>GNGLL: geographic longitude/latitude with multiple antennas</summary>
-
-Raw:
-`$GNGLL,4129.47587847,N,-7125.31160943,W,185340.00,A,A*75`
-
-Parsed: None
-
-<pre>
-$GNGLL
-
-NMEA 0183 output geographic longitude/latitude information with multiple antennas.
-
-Syntax
-$GNGLL,<1>,<2>,<3>,<4>,<5>,<6>,<7>*hh<CR><LF>
-
-Fields
-<1> Latitude
-<2> Latitude direction 
-        N: North 
-        S: South
-<3> Longitude
-<4> Longitude direction
-        E: East
-        W: West
-<5> UTC (hhmmss.ss)
-<6> Status:
-        A: Data valid
-        V: Data not valid
-        D: Differential
-<7> Mode indicator:
-        N: Data not valid
-        A: Autonomous mode
-        D: Differential mode
-        M: Manual input mode
-        S: Simulator mode
 </pre>
 
 </details>
@@ -212,13 +212,6 @@ Fields
 
 <details>
 
-<summary>GNVTG: pseudorange measurement error statistics with multiple antennas</summary>
-
-
-</details>
-
-<details>
-
 <summary>GNVTG: actual track made good and speed over ground with multiple antennas</summary>
 
 Raw:
@@ -254,35 +247,6 @@ Fields
 </pre>
 
 </details>
-
-<details>
-
-<summary>GNTHS: True Heading and Status with multiple antennas</summary>
-
-Raw:
-`$GNTHS,113.8408,A*1E`
-
-Parsed: None
-
-<pre>
-$GNTHS
-
-NMEA 0183 output true heading and status.
-
-Syntax
-$GNTHS,<1>,<2>*hh<CR><LF>
-
-Fields
-<1> Heading: Heading, degrees True
-<2> Mode indicator:
-    A: Autonomous mode
-    M: Manual Input mode
-    S: Simulator mode
-    N: Data not valid
-</pre>
-
-</details>
-
 
 <details>
 

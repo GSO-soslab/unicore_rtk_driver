@@ -38,3 +38,5 @@ list(APPEND thirdparty_libraries
   ${catkin_LIBRARIES}
 )
 
+add_executable(crc_test test/crc_test.cpp)
+target_link_libraries(crc_test ${thirdparty_libraries})
