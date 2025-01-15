@@ -11,6 +11,20 @@ This is ROS1 driver for [H-RTK Unicore UM982 module](https://holybro.com/product
         - parse with cpp poly: TODO
         - parse with py: TODO
 - parse unicore AGRICA
+- publish all string for testing
+
+#UNIHEADINGA,
+97,
+GPS,
+FINE,
+2190,
+365174000,
+0,
+0,
+18,
+12;
+INSUFFICIENT_OBS,NONE,0.000
+0,0.0000,0.0000,0.0000,0.0000,0.0000,"",0,0,0,0,0,00,0,0*ee072604
 
 #: sync
 UNIHEADINGA: Message

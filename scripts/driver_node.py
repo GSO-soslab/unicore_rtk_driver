@@ -12,7 +12,8 @@ import tf
 import tf.transformations
 import tf2_ros
 
-import parser
+import nmea_parser
+import unicore_parser
 
 class StringType(Enum):
     FAILURE = 0
@@ -275,7 +276,7 @@ class UnicoreDriver:
             return False
             
         ### parse a sentence
-        parsed_sentence = parser.parse_nmea_sentence(nmea_string)
+        parsed_sentence = nmea_parser.parse_nmea_sentence(nmea_string)
         if not parsed_sentence:
             rospy.logdebug(
                 "Failed to parse NMEA sentence. Sentence was: %s" % 
@@ -393,8 +394,9 @@ class UnicoreDriver:
         ### publish the NMEA
         self.send_sentence(nmea_string)
 
-        print("nmea: " + nmea_string)
-        print(parsed_sentence)
+        # DEBUG:
+        # print("nmea: " + nmea_string)
+        # print(parsed_sentence)
 
     def calculate_crc32(self, sz_buf: str) -> int:
         crc = 0
@@ -407,38 +409,28 @@ class UnicoreDriver:
         This function check the unicore string, parse the data
         """
 
-        #remove any \r\n in the string
+        # remove any \r\n in the string
         unicore_string = unicore_string.replace('\r', '').replace('\n', '') 
 
-        # Split the string at the asterisk to isolate the checksum
+        # split the string at the asterisk to isolate the checksum
         msg, checksum = unicore_string.split('*')
 
-        # #checksum check without the first '#'
-        # calculator = Calculator(Crc32.CRC32)
-        # # calc_checksum = calculator.checksum(msg[1:].encode('utf-8'))
-        # calc_checksum = calculator.checksum(data.encode('utf-8'))
-
-        #checksum check without the first '#'
+        # checksum check without the first '#'
         calc_checksum = self.calculate_crc32(msg[1:])
 
-        # Split the header and data
-        header, data = msg.split(';')
+        # assign the pure msg
+        unicore_string = msg
 
-        print('')
-        print('msg')
-        print(msg)
-        print('header')
-        print(header)
-        print("data")
-        print(data)
-        print('given checksum:')
-        print(checksum)
-        print('calc checksum: ')
-        print(str(calc_checksum)[2:])
+        # DEBUG:
+        # print('given checksum:')
+        # print(checksum)
+        # print('calc checksum: ')
+        # print(str(calc_checksum)[2:])
 
         if(str(calc_checksum)[2:] == checksum):
-            print("good data")
-
+            return True
+        else:
+            return False
 
     def parse_unicore(self, unicore_string):
         """
@@ -452,7 +444,24 @@ class UnicoreDriver:
                 "unicore string was: %s" % repr(unicore_string))
             return False
 
+        ### parse a sentence
+        parsed_sentence = unicore_parser.parse_unicore_sentence(unicore_string)
+        if not parsed_sentence:
+            rospy.logdebug(
+                "Failed to parse UNICORE sentence. Sentence was: %s" % 
+                unicore_string)
+            return False
+        
+        # DEBUG:
+        print("unicore: " + unicore_string)        
+        print(parsed_sentence)
 
+        if 'HEAD' in parsed_sentence and 'UNIHEADINGA' in parsed_sentence:
+            data = parsed_sentence['UNIHEADINGA']
+
+            # assign the data
+            station_id = data['StationId']
+ 
     def send_sentence(self, data):
 
         if self.nmea_pub.get_num_connections() > 0:
@@ -502,9 +511,6 @@ class UnicoreDriver:
         else:
             print("failure")
 
-        ### check the string type: NMEA 0183, Unicore or Failure
-
-        
     def close(self):
         if self.ser.is_open:
             self.ser.close()
