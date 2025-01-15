@@ -117,35 +117,35 @@ parse_maps = {
         # ("Message", str, 0),
         # ID:3 The minimum percentage of time that the processor is idle, 
         #      calculated once per second.
-        ("CPUIdle", safe_int, 1),
+        ("CPU_Idle", safe_int, 1),
         # ID:4 Reference time (GPST or BDST)
-        ("TimeRef", str, 2),
+        ("Time_Ref", str, 2),
         # ID:5 GPS time quality indicator. The value is Unknown or
         #      Fine, of which the former indicates that the receiver
         #      has not yet calculated the precise GPS time.
-        ("TimeStatus", str, 3),
+        ("Time_Status", str, 3),
         # ID:6 GPS week number
-        ("WeekNum", safe_int, 4),
+        ("Week_Num", safe_int, 4),
         # ID:7 GPS seconds of week (ms)
-        ("WeekSec", safe_int, 5),
+        ("Week_MS", safe_int, 5),
         # ID:8 reserved
         # ("reserved", safe_int, 6),
         # ID:9 Reserved for the Unicore format version number
         ("Version", safe_int, 7),
         # ID:10 Leap second
-        ("LeapSec", safe_int, 8),
+        ("Leap_Seccond", safe_int, 8),
         # ID:11 Output delay (Difference between the data output time
         #       and GNSS signal receiving time), ms
-        ("OutputDelay", safe_int, 9),
+        ("Output_Delay", safe_int, 9),
     ],
     "UNIHEADINGA": [
         # ID:1 header
         # ID:2 Solution status, refer to Table 0-5 Solution Status
-        ("SolStat", convert_solution_status, 0),
+        ("Sol_Stat", convert_solution_status, 0),
         # ID:3 Position type, refer to Table 0-4, Position or Velocity Type
-        ("PosType", convert_pos_type, 1),
+        ("Pose_Type", convert_pos_type, 1),
         # ID:4 Baseline length
-        ("BaseLen", safe_float, 2),
+        ("Base_Len", safe_float, 2),
         # ID:5 Heading (0 to 360.0 degrees)
         ("Heading", safe_float, 3),
         # ID:6 Pitch (± 90 degrees)
@@ -153,26 +153,26 @@ parse_maps = {
         # ID:7 Reserved
         # ("Reserved", safe_float, 5),
         # ID:8 Standard deviation of heading
-        ("HeadingStd", safe_float, 6),
+        ("Heading_Std", safe_float, 6),
         # ID:9 Standard deviation of pitch
-        ("PitchStd", safe_float, 7),
+        ("Pitch_Std", safe_float, 7),
         # ID:10 Base station ID
-        ("StationId", safe_str, 8),
+        ("Station_Id", safe_str, 8),
         # ID:11 Number of satellites tracked
-        ("SatNum", safe_int, 9),
+        ("Num_Sat", safe_int, 9),
         # ID:12 Number of satellites used in solution
-        ("SatNum", safe_int, 10),
+        ("Sol_Num_Sat", safe_int, 10),
         # ID:13 Number of satellites above the elevation mask angle
-        ("ObsNum", safe_int, 11),
+        ("Num_Obs", safe_int, 11),
         # ID:14 Number of satellites with L2 signal above the 
         #       elevation mask angle
-        ("MultiNum", safe_int, 12),
+        ("Num_Multi", safe_int, 12),
         # ID:15 Reserved
         # ("Reserved", safe_float, 13),
         # ID:16 Extended solution status, refer to Table 7-87 
         #       Extended Solution Status
         # FIXME simple convert to int, should do more test if real data exist
-        ("ExtSolStat", safe_int, 14),
+        ("Ext_Sol_Stat", safe_int, 14),
         # ID:17 Galileo and BDS-3 signal mask refer to Table 7-86 
         #       Galileo & BDS-3 Signal Mask
         # FIXME: what is the mask(0x01, 0x02... 0x80) means
@@ -180,7 +180,145 @@ parse_maps = {
         # ID:18 GPS, GLONASS and BDS-2 signal mask 
         #       (see Table 7-85 GPS/GLONASS/BDS-2 Signal Mask)
         ("Mask2", convert_mask, 16),
-    ]    
+    ],
+    "AGRICA": [
+        # ID:1 header
+        # ID:2 GNSS
+        ("GNSS", safe_str, 0),
+        # Id:3 Command length, from GNSS to CRC, 232 bytes in total, 
+        #      a fixed value of 0XE8
+        ("Length", safe_int, 1),
+        # ID:4 UTC-year, for example: 2016-> 16; 2116-> 116
+        ("Year", safe_int, 2),
+        # ID:5 UTC-month
+        ("Month", safe_int, 3),
+        # ID:6 UTC-day
+        ("Day", safe_int, 4),
+        # ID:7 UTC-hour
+        ("Hour", safe_int, 5),
+        # ID:8 UTC-minute
+        ("Minute", safe_int, 6),
+        # ID:9 UTC-second
+        ("Second", safe_int, 7),
+        # ID:10 Rover position status:
+        #       0: Invalid solution;
+        #       1: Single point solution;
+        #       2: Pseudorange differential
+        #       solution;
+        #       4: Fixed solution;
+        #       5: Float solution
+        #       7: Input a fixed position (only supported by specific versions)
+        ("Pose_Type", safe_int, 8),
+        # ID:11 Heading solution status of master and slave antennas
+        #       0: Invalid solution;
+        #       4: Fixed solution;
+        #       5: Float solution
+        ("Heading_Status", safe_int, 9),
+        # ID:12 Number of GPS satellites used in the solution
+        ("Num_GPS", safe_int, 10),
+        # ID:13 Number of BeiDou System (BDS) satellites used in the solution
+        ("Num_BDS", safe_int, 11),
+        # ID:14 Number of GLONASS satellites used in the solution
+        ("Num_GLO", safe_int, 12),
+        # ID:15 Baseline vector from the base station to the rover station, 
+        #       northern component
+        ("Trans_North", safe_float, 13),
+        # ID:16 Baseline vector from the base station to the rover station, 
+        #       eastern component
+        ("Trans_East", safe_float, 14),
+        # ID:17 Baseline vector from the base station to the rover station, 
+        #       vertical component
+        ("Trans_Up", safe_float, 15),
+        # ID:18 Baseline vector from the base station to the rover station, 
+        #       northern component standard deviation
+        ("Trans_Std_North", safe_float, 16),
+        # ID:19 Baseline vector from the base station to the rover station, 
+        #       eastern component standard deviation
+        ("Trans_Std_East", safe_float, 17),
+        # ID:20 Baseline vector from the base station to the rover station, 
+        #       vertical component standard deviation
+        ("Trans_Std_Up", safe_float, 18),
+        # ID:21 Heading
+        ("Heading", safe_float, 19),
+        # ID:22 Pitch
+        ("Pitch", safe_float, 20),
+        # ID:23 Roll
+        ("Roll", safe_float, 21),
+        # ID:24 Speed, scalar
+        # FIXME what is unit?
+        ("Speed", safe_float, 22),
+        # ID:25 North velocity
+        ("Vel_North", safe_float, 23),
+        # ID:26 East velocity
+        ("Vel_East", safe_float, 24),
+        # ID:27 Up velocity
+        ("Vel_Up", safe_float, 25),
+        # ID:28 North velocity standard deviation
+        ("Vel_Std_North", safe_float, 26),
+        # ID:29 East velocity standard deviation
+        ("Vel_Std_East", safe_float, 27),
+        # ID:30 Up velocity standard deviation
+        ("Vel_Std_Up", safe_float, 28),
+        # ID:31 Latitude of the rover station: -90~90 degrees, 
+        #       positive for the North and negative for the South
+        ("Lat", safe_float, 29),
+        # ID:32 Longitude of the rover station: -180~180 degrees, 
+        #       positive for the East and negative for the West
+        ("Lon", safe_float, 30),
+        # ID:33 Height of the rover station
+        ("Alt", safe_float, 31),
+        # ID:34 X axis of the ECEF coordinate system
+        ("ECEF_X", safe_float, 32),
+        # ID:35 Y axis of the ECEF coordinate system
+        ("ECEF_Y", safe_float, 33),
+        # ID:36 Z axis of the ECEF coordinate system
+        ("ECEF_Z", safe_float, 34),
+        # ID:37 Latitude standard deviation
+        ("Lat_Std", safe_float, 35),
+        # ID:38 Longitude standard deviation
+        ("Lon_Std", safe_float, 36),
+        # ID:39 Height standard deviation
+        ("Alt_Std", safe_float, 37),
+        # ID:40 ECEF_X standard deviation
+        ("ECEF_X_Std", safe_float, 38),
+        # ID:41 ECEF_Y standard deviation
+        ("ECEF_Y_Std", safe_float, 39),
+        # ID:42 ECEF_Z standard deviation
+        ("ECEF_Z_Std", safe_float, 40),
+        # ID:43 Latitude of the base station: -90~90 degrees
+        ("Base_Lat", safe_float, 41),
+        # ID:44 Longitude of the base station: -180~180 degrees
+        ("Base_Lon", safe_float, 42),
+        # ID:45 Height of the base station
+        ("Base_Alt", safe_float, 43),
+        # ID:46 Latitude of the slave antenna: -90~90 degrees
+        ("Secondary_Lat", safe_float, 44),
+        # ID:47 Longitude of the slave antenna: -180~180 degrees
+        ("Secondary_Lon", safe_float, 45),
+        # ID:48 Height of the slave antenna
+        ("Secondary_Alt", safe_float, 46),
+        # ID:49 Milliseconds of GPS week
+        ("Week_MS", safe_int, 47),
+        # ID:50 Differential age
+        ("Diff_Age", safe_float, 48),
+        # ID:51 Direction of velocity
+        ("Speed_Heading", safe_float, 49),
+        # ID:52 Undulation
+        ("Undulation", safe_float, 50),
+        # ID:53 Reserved
+        # ("Reserved1", safe_int, 51),
+        # ID:54 Reserved
+        # ("Reserved2", safe_int, 52),
+        # ID:55 Number of Galileo satellites
+        ("Num_GAL", safe_float, 53),
+        # ID:56 0: speed solution status valid
+        #       1: speed solution status invalid
+        ("Speed_Vaild", safe_float, 54),
+        # ID:57 Reserved
+        # ("Reserved3", safe_int, 55),
+        # ID:58 Reserved
+        # ("Reserved4", safe_int, 56),
+    ]          
 }
 """A dictionary that maps from sentence identifier string (e.g. "GGA") to a list of tuples.
 Each tuple is a three-tuple of (str: field name, callable: conversion function, int: field index).

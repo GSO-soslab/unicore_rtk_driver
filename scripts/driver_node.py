@@ -447,7 +447,7 @@ class UnicoreDriver:
         ### parse a sentence
         parsed_sentence = unicore_parser.parse_unicore_sentence(unicore_string)
         if not parsed_sentence:
-            rospy.logdebug(
+            rospy.logwarn(
                 "Failed to parse UNICORE sentence. Sentence was: %s" % 
                 unicore_string)
             return False
@@ -461,7 +461,13 @@ class UnicoreDriver:
 
             # assign the data
             station_id = data['StationId']
+        
+        if 'HEAD' in parsed_sentence and 'AGRICA' in parsed_sentence:
+            data = parsed_sentence['AGRICA']        
  
+             # assign the data
+            GNSS = data['GNSS']
+
     def send_sentence(self, data):
 
         if self.nmea_pub.get_num_connections() > 0:
@@ -506,7 +512,6 @@ class UnicoreDriver:
         if data_type == StringType.NMEA:
             self.parse_nmea(data_string)
         elif data_type == StringType.UNICORE:
-            print("unicore: " + data_string)
             self.parse_unicore(data_string)
         else:
             print("failure")

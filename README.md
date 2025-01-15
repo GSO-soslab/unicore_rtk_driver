@@ -6,56 +6,15 @@ This is ROS1 driver for [H-RTK Unicore UM982 module](https://holybro.com/product
 - time info for gps message ?
 - check all the fix vaild before send out, for example: HPR msg
 - two group modes: NMEA or unicore ASCII string
-- parse the unicore UNIHEADINGA, 
+- parse the unicore UNIHEADINGA
         - parse with cpp crc table: OK
         - parse with cpp poly: TODO
         - parse with py: TODO
-- parse unicore AGRICA
+- parse unicore AGRICA,
 - publish all string for testing
 
-#UNIHEADINGA,
-97,
-GPS,
-FINE,
-2190,
-365174000,
-0,
-0,
-18,
-12;
-INSUFFICIENT_OBS,NONE,0.000
-0,0.0000,0.0000,0.0000,0.0000,0.0000,"",0,0,0,0,0,00,0,0*ee072604
-
-#: sync
-UNIHEADINGA: Message
-97:CPUIDle
-GPS:TimeRef
-UNKNOWN:TimeStatus
-1:Wn
-920000:Ms
-0:reserved
-0:version
-18:Leap sec
-2:Output Delay
-;
-INSUFFICIENT_OBS:sol stat
-NONE:pos type
-0.0000:length
-0.0000:heading
-0.0000:pitch
-0.0000:Reserved
-0.0000:hdgstddev
-0.0000:ptchstddev
-"":stn id
-0:#SVs
-0:#solnSVs
-0:#obs
-0:#multi
-0:Reserved
-00:ext sol stat
-0:Galileo&BDS3 sig mask
-0:GPS, GLONASS and BDS2 sig mask
-
+AGRICA: 450 characters + 2 more for '\r\n', total will be 452
+UNIHEADINGA: 143 characters + 2 more for '\r\n', total will be 145
 
 ## published message:
 - heading message:
