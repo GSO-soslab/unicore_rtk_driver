@@ -5,7 +5,7 @@ import serial
 import math
 import rospy
 from geometry_msgs.msg import Quaternion, PoseWithCovarianceStamped, TwistStamped
-from sensor_msgs.msg import NavSatFix, NavSatStatus
+from sensor_msgs.msg import NavSatFix, NavSatStatus, TimeReference
 from nmea_msgs.msg import Sentence
 from std_msgs.msg import Float32, String
 import tf
@@ -84,8 +84,9 @@ class UnicoreDriver:
         self.use_gnss_time = rospy.get_param('~use_gnss_time', False)
 
         ### ros
-        self.heading_topic = rospy.get_param('~heading_topic', 'unicore/heading')
+        self.hpr_heading_topic = rospy.get_param('~hpr_heading_topic', 'unicore/heading')
         self.fix_topic = rospy.get_param('~fix_topic', 'unicore/fix')
+        self.time_ref_topic = rospy.get_param('~fix_topic', 'unicore/time_reference')
         self.nmea_topic = rospy.get_param('~nmea_topic', 'unicore/nmea')
         self.global_vel_topic = rospy.get_param('~global_vel_topic', 'unicore/global_velocity')
         self.simple_heading_topic = rospy.get_param('~simple_heading_topic', 'unicore/simple_heading')
@@ -109,9 +110,10 @@ class UnicoreDriver:
         """
 
         ### publihser
-        self.heading_pub = rospy.Publisher(self.heading_topic, PoseWithCovarianceStamped, queue_size=10)
+        self.hpr_heading_pub = rospy.Publisher(self.hpr_heading_topic, PoseWithCovarianceStamped, queue_size=10)
         self.nmea_pub = rospy.Publisher(self.nmea_topic, Sentence, queue_size=10)
         self.fix_pub = rospy.Publisher(self.fix_topic, NavSatFix, queue_size=10)
+        self.time_ref_pub = rospy.Publisher(self.time_ref_topic, TimeReference, queue_size=10)
         self.global_vel_pub = rospy.Publisher(self.global_vel_topic, TwistStamped, queue_size=10)
         self.simple_heading_pub = rospy.Publisher(self.simple_heading_topic, Float32, queue_size=10)
 
@@ -129,12 +131,6 @@ class UnicoreDriver:
         self.tf_br = tf2_ros.TransformBroadcaster()
 
     def init(self):
-
-        ### some init
-        self.time_io = rospy.Time.now()
-        self.time_io_ready = False
-        self.time_gnss = rospy.Time.now()
-        self.time_gnss_ready = False
 
         self.hdop = float("nan")
 
@@ -190,8 +186,6 @@ class UnicoreDriver:
 
         self.fix_msg = NavSatFix()
 
-        self.heading_msg = PoseWithCovarianceStamped()
-
         self.vel_msg = TwistStamped()
 
     def read_nmea(self):
@@ -203,14 +197,8 @@ class UnicoreDriver:
             ### read one line
             data = self.ser.readline().decode('utf-8').strip()
 
-            ### save the IO timestamp only if this is the first sentence
-            # if not self.time_gnss_ready and not self.time_io_ready:
-            if not self.time_io_ready:
-                self.time_io_ready = True
-                self.time_io = rospy.Time.now()
-                # print("The real IO Time now: %s" % self.time_io.to_sec())
-
-            # print("IO Time now: %s" % rospy.Time.now().to_sec())
+            ### get IO time for this sentence 
+            self.time_io = rospy.Time.now()
 
             return data
         else:
@@ -286,6 +274,17 @@ class UnicoreDriver:
         if 'GGA' in parsed_sentence:
             data = parsed_sentence['GGA']
 
+            if math.isnan(data['utc_time'][0]):
+                rospy.logwarn("Time in the NMEA GGA sentence is NOT valid")
+                return False
+            
+            ### get timestamp
+            if self.use_gnss_time:
+                self.fix_msg.header.stamp = rospy.Time(data['utc_time'][0], data['utc_time'][1])
+            else:
+                self.fix_msg.header.stamp = self.time_io
+            self.fix_msg.header.frame_id = self.gps_frame_id
+
             ### get fix
             fix_type = data['fix_type']
             if not (fix_type in self.gps_qualities):
@@ -318,27 +317,28 @@ class UnicoreDriver:
         elif 'RMC' in parsed_sentence:
             data = parsed_sentence['RMC']
 
-            ### get GNSS time
+            ### get actual GNSS time
+            if math.isnan(data['utc_time'][0]):
+                rospy.logwarn("Time in the NMEA RMC sentence is NOT valid")
+                return False
+            
+            ### TimeReference msg
+            time_ref_msg = TimeReference()
+
             if self.use_gnss_time:
-                if math.isnan(data['utc_time'][0]):
-                    rospy.logwarn("RMC: Time in the NMEA sentence is NOT valid")
-                    return False
-                else:
-                    self.time_gnss = rospy.Time(data['utc_time'][0], data['utc_time'][1])
-                    self.time_gnss_ready = True
-
-            ### assign timestamp
-            if self.time_gnss_ready and self.use_gnss_time:
-                self.fix_msg.header.stamp = self.time_gnss
+                time_ref_msg.header.stamp = rospy.Time(data['utc_time'][0], data['utc_time'][1])
             else:
-                self.fix_msg.header.stamp = self.time_io
-            ### assign fix msg: frame id
-            self.fix_msg.header.frame_id = self.gps_frame_id
+                time_ref_msg.header.stamp = self.time_io            
+            time_ref_msg.header.frame_id = self.gps_frame_id
+            time_ref_msg.source = self.gps_frame_id
+            time_ref_msg.time_ref = time_ref_msg.header.stamp
+            self.time_ref_pub.publish(time_ref_msg)
 
+            # FIXME not need if ENU speed is published through other msg
             if self.valid_fix:
                 ### assign vel msg: header
-                if self.time_gnss_ready and self.use_gnss_time:
-                    self.vel_msg.header.stamp = self.time_gnss
+                if self.use_gnss_time:
+                    self.vel_msg.header.stamp = rospy.Time(data['utc_time'][0], data['utc_time'][1])
                 else:
                     self.vel_msg.header.stamp = self.time_io            
                 self.vel_msg.header.frame_id = "world"
@@ -369,27 +369,33 @@ class UnicoreDriver:
         elif 'HPR' in parsed_sentence:
             data = parsed_sentence['HPR']
 
+            ### get actual GNSS time
+            if math.isnan(data['utc_time'][0]):
+                rospy.logwarn("Time in the NMEA HPR sentence is NOT valid")
+                return False
+            
+            if data['fix_type'] == 0:
+                rospy.logwarn("Fix in the NMEA HPR sentence is NOT valid")
+                return False                
+            
+            heading_msg = PoseWithCovarianceStamped()
+
             ### assign heading msg: header
-            if self.time_gnss_ready and self.use_gnss_time:
-                self.heading_msg.header.stamp = self.time_gnss
+            if self.use_gnss_time:
+                heading_msg.header.stamp = rospy.Time(data['utc_time'][0], data['utc_time'][1])
             else:
-                self.heading_msg.header.stamp = self.time_io            
-            self.heading_msg.header.frame_id = self.heading_frame_id
+                heading_msg.header.stamp = self.time_io            
+            heading_msg.header.frame_id = self.heading_frame_id
             ### assign heading msg: pose
-            self.heading_msg.pose.pose.orientation = self.rpy_to_quaternion(
+            heading_msg.pose.pose.orientation = self.rpy_to_quaternion(
                 0,0, data['heading'] * math.pi / 180.0)
             ### assign heading for simple test
             simple_heading_msg = Float32()
             simple_heading_msg.data = data['heading']
-            # print(data['heading'])
             
             ### publish heading
-            self.heading_pub.publish(self.heading_msg)
+            self.hpr_heading_pub.publish(heading_msg)
             self.simple_heading_pub.publish(simple_heading_msg)
-
-            ### This the last sentence, we can set to "not_ready"
-            self.time_gnss_ready = False
-            self.time_io_ready = False
 
         ### publish the NMEA
         self.send_sentence(nmea_string)

@@ -3,18 +3,32 @@
 This is ROS1 driver for [H-RTK Unicore UM982 module](https://holybro.com/products/h-rtk-unicore-um982?srsltid=AfmBOor9B8UnQe8gZG0i5H9SFrWDkjocAbjg1wBmmKDetLk7dQbwZMtK).
 
 ## TODO:
-- time info for gps message ?
-- check all the fix vaild before send out, for example: HPR msg
-- two group modes: NMEA or unicore ASCII string
-- parse the unicore UNIHEADINGA
-        - parse with cpp crc table: OK
-        - parse with cpp poly: TODO
-        - parse with py: TODO
-- parse unicore AGRICA,
-- publish all string for testing
+
+- publish msg from UNIHEADINGA
+        - heading and pitch with std
+- publish msg from AGRICA
+        - ENU velocity with STD
+        - slave lat/lon/alt, but no std
+        - rover station lat/lon/alt with std
+                - is this the primary antenna ?
+                - but no HDOP, what is the `proper way to calculate covariance of gps measurements`
+- publish the msg from GPS NMEA ?
+        - GGA: ok
+                - lat/lon/alt, with default std, `IO time is the actual IO time`, GPS time is the time from data['time'], 
+        - GST: ok
+                - `lat/lon/alt std`, use the std here
+        - RMC: ok
+                - time_ref:GNSS/data['time]
+                - velocity for test
+        - HPR: ok
+                - publish the HPR heading and simple heading, for test
 
 AGRICA: 450 characters + 2 more for '\r\n', total will be 452
 UNIHEADINGA: 143 characters + 2 more for '\r\n', total will be 145
+
+## Test:
+- check all the data paring is good
+- check if all the data vaild before publish
 
 ## published message:
 - heading message:
@@ -38,13 +52,6 @@ UNIHEADINGA: 143 characters + 2 more for '\r\n', total will be 145
 ## Acknowledgment
 
 https://github.com/ros-drivers/nmea_navsat_driver
-
-## Todo:
-
-- publish vel
-    - print the data['utc_time], it seems not parsed ?
-    - what the relationship between speed and course ?
-    - which msg should be used to publish the vel ?
 
 <details>
 
@@ -83,7 +90,7 @@ Fields
         5: RTK Float, OmniSTAR XP/HP, Location RTK, RTX
         6: INS Dead reckoning
 <7> Number of SVs in use, range from 00 through to 24+
-<8> HDOP
+<8> Horizontal Dilution of Precision (HDOP)
 <9> Orthometric height (MSL reference)
 <10> M: unit of measure for orthometric height is meters
 <11> Geoid separation
@@ -149,7 +156,6 @@ Fields
 </pre>
 
 </details>
-
 
 <details>
 

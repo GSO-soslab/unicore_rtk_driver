@@ -141,8 +141,18 @@ parse_maps = {
     "UNIHEADINGA": [
         # ID:1 header
         # ID:2 Solution status, refer to Table 0-5 Solution Status
+        #      0: Solution computed
+        #      1: Insufficient observation
+        #      2: No convergence, invalid solution
+        #      3: Covariance matrix trace exceeds maximum (trace > 1000 m)
         ("Sol_Stat", convert_solution_status, 0),
         # ID:3 Position type, refer to Table 0-4, Position or Velocity Type
+        #      0: No solution
+        #      1: Position fixed by the FIX POSITION command
+        #      2: Not supported currently
+        #      8: Velocity computed using instantaneous Doppler       
+        #      16: Single point positioning
+        #      ...
         ("Pose_Type", convert_pos_type, 1),
         # ID:4 Baseline length
         ("Base_Len", safe_float, 2),
@@ -176,9 +186,24 @@ parse_maps = {
         # ID:17 Galileo and BDS-3 signal mask refer to Table 7-86 
         #       Galileo & BDS-3 Signal Mask
         # FIXME: what is the mask(0x01, 0x02... 0x80) means
+        #       0, 0x01, GALILEO E1 used in solution
+        #       1, 0x02, GALILEO E5b used in solution
+        #       2, 0x04, GALILEO E5A used in solution
+        #       3, 0x08, BDS3 B2b used in solution
+        #       4, 0x10, BDS-3 B1I used in solution
+        #       5, 0x20, BDS-3 B3I used in solution
+        #       6, 0x40, BDS-3 B2a used in solution
+        #       7, 0x80, BDS-3 B1C used in solution        
         ("Mask1", convert_mask, 15),
         # ID:18 GPS, GLONASS and BDS-2 signal mask 
-        #       (see Table 7-85 GPS/GLONASS/BDS-2 Signal Mask)
+        #       0, 0x01, GPS L1 used in solution
+        #       1, 0x02, GPS L2 used in solution
+        #       2, 0x04, GPS L5 used in solution
+        #       3, 0x08, BDS-2 B3I used in solution
+        #       4, 0x10, GLONASS L1 used in solution
+        #       5, 0x20, GLONASS L2 used in solution
+        #       6, 0x40, BDS-2 B1I used in solution
+        #       7, 0x80, BDS-2 B2I used in solution        
         ("Mask2", convert_mask, 16),
     ],
     "AGRICA": [
