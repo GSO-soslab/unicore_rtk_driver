@@ -50,6 +50,19 @@ def safe_str(field):
     else:
         return field
 
+def convert_deg_to_rads(degs):
+    """Convert an angle in degrees to radians.
+
+    This wrapper is needed because math.radians doesn't accept non-numeric inputs.
+
+    Args:
+        degs (float, int, or str): Angle in degrees
+
+    Returns:
+        The value of safe_float(degs) converted from degrees to radians.
+    """
+    return math.radians(safe_float(degs))
+
 def convert_solution_status(field):
     """Convert a UNICORE Solution Status into Enum
 
@@ -71,26 +84,40 @@ def convert_solution_status(field):
     else:
         return -1 # something wrong
 
-def convert_pos_type(field):
+pose_type = {
+    'NONE': 0, # No solution
+    'FIXEDPOS': 1, # Position fixed by the FIX POSITION command
+    'FIXEDHEIGHT': 2, # Not supported currently
+    'DOPPLER_VELOCITY': 8, # Velocity computed using instantaneous Doppler
+    'SINGLE' : 16,  # Single point positioning
+    'PSRDIFF' : 17, # Pseudorange differential solution
+    'SBAS' : 18, # SBAS positioning
+    'L1_FLOAT' : 32, # L1 float solution
+    'IONOFREE_FLOAT' : 33, # Ionosphere-free float solution
+    'NARROW_FLOAT' :34, # Narrow-lane float solution
+    'L1_INT' : 48, # L1 fixed solution
+    'WIDE_INT' : 49, # Wide-lane fixed solution
+    'NARROW_INT' : 50, # Narrow-lane fixed solution
+    'INS' : 52, # Inertial navigation solution
+    'INS_PSRSP' : 53, # Integrated solution of INS and single point positioning
+    'INS_PSRDIFF' : 54, # Integrated solution of INS and pseudorange differential positioning
+    'INS_RTKFLOAT' : 55, # Integrated solution of INS and RTK float
+    'INS_RTKFIXED' : 56, # Integrated solution of INS and RTK fix
+    'PPP_CONVERGING' : 68, # PPP solution converging
+    'PPP' : 69 # Precise Point Positioning
+} 
+
+def convert_pose_type(field):
     """Convert a UNICORE Position or Velocity type into Enum
 
     Args:
         field (str): Table 0-4 Position or Velocity Type
 
     Returns:
-        0,1,2,8
+        0,1,2,8...
     """
 
-    if field == "NONE": # No solution
-        return 0
-    elif field == "FIXEDPOS": # Position fixed by the FIX POSITION command
-        return 1
-    elif field == "FIXEDHEIGHT": # Not supported currently
-        return 2
-    elif field == "DOPPLER_VELOCITY": # Velocity computed using instantaneous Doppler
-        return 8    
-    else:
-        return -1 # something wrong
+    return pose_type(field, -1)
     
 def convert_mask(field):
     """Convert a UNICORE Galileo & BDS-3 Signal Mask to Enum
@@ -153,19 +180,19 @@ parse_maps = {
         #      8: Velocity computed using instantaneous Doppler       
         #      16: Single point positioning
         #      ...
-        ("Pose_Type", convert_pos_type, 1),
+        ("Pose_Type", convert_pose_type, 1),
         # ID:4 Baseline length
         ("Base_Len", safe_float, 2),
         # ID:5 Heading (0 to 360.0 degrees)
-        ("Heading", safe_float, 3),
+        ("Heading", convert_deg_to_rads, 3),
         # ID:6 Pitch (± 90 degrees)
-        ("Pitch", safe_float, 4),
+        ("Pitch", convert_deg_to_rads, 4),
         # ID:7 Reserved
         # ("Reserved", safe_float, 5),
         # ID:8 Standard deviation of heading
-        ("Heading_Std", safe_float, 6),
+        ("Heading_Std", convert_deg_to_rads, 6),
         # ID:9 Standard deviation of pitch
-        ("Pitch_Std", safe_float, 7),
+        ("Pitch_Std", convert_deg_to_rads, 7),
         # ID:10 Base station ID
         ("Station_Id", safe_str, 8),
         # ID:11 Number of satellites tracked

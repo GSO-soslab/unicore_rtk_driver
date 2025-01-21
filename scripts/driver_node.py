@@ -83,13 +83,16 @@ class UnicoreDriver:
 
         self.use_gnss_time = rospy.get_param('~use_gnss_time', False)
 
-        ### ros
+        ### NMEA 0183 msg
         self.hpr_heading_topic = rospy.get_param('~hpr_heading_topic', 'unicore/heading')
         self.fix_topic = rospy.get_param('~fix_topic', 'unicore/fix')
         self.time_ref_topic = rospy.get_param('~fix_topic', 'unicore/time_reference')
         self.nmea_topic = rospy.get_param('~nmea_topic', 'unicore/nmea')
         self.global_vel_topic = rospy.get_param('~global_vel_topic', 'unicore/global_velocity')
         self.simple_heading_topic = rospy.get_param('~simple_heading_topic', 'unicore/simple_heading')
+
+        ### Unicore msg
+        self.unicore_heading_topic = rospy.get_param('~unicore_heading_topic', 'unicore/unicre_heading')
 
         self.tx_cmd_topic = rospy.get_param('~tx_cmd_topic', 'unicore/tx_cmd')
 
@@ -116,6 +119,8 @@ class UnicoreDriver:
         self.time_ref_pub = rospy.Publisher(self.time_ref_topic, TimeReference, queue_size=10)
         self.global_vel_pub = rospy.Publisher(self.global_vel_topic, TwistStamped, queue_size=10)
         self.simple_heading_pub = rospy.Publisher(self.simple_heading_topic, Float32, queue_size=10)
+
+        self.unicore_heading_pub = rospy.Publisher(self.unicore_heading_topic, PoseWithCovarianceStamped, queue_size=10)
 
         ### subscriber
         rospy.Subscriber(self.tx_cmd_topic, String, self.tx_cmd_callback)
@@ -465,8 +470,27 @@ class UnicoreDriver:
         if 'HEAD' in parsed_sentence and 'UNIHEADINGA' in parsed_sentence:
             data = parsed_sentence['UNIHEADINGA']
 
-            # assign the data
-            station_id = data['StationId']
+            ### check the vaild status
+            if data['Pose_Type'] == 0:
+                rospy.logwarn("Unicore msg - FUNIHEADINGA not vaild")
+                return 
+
+            ### assign heading msg: header
+            heading_msg = PoseWithCovarianceStamped()
+            heading_msg.header.stamp = self.time_io            
+            heading_msg.header.frame_id = self.heading_frame_id
+            ### assign heading msg: pose
+            heading_msg.pose.pose.orientation = self.rpy_to_quaternion(
+                0, data['Pitch'], data['Heading'])
+            heading_msg.pose.covariance[28] = data['Pitch_Std'] * data['Pitch_Std']  
+            heading_msg.pose.covariance[35] = data['Heading_Std'] * data['Heading_Std'] 
+
+            print("Unicore - UNIHEADINGA: picth=%f, heading:%f" % 
+                  (data['Pitch']*180/3.1415926, data['Heading']*180/3.1415926))
+            
+            ### publish heading
+            self.unicore_heading_pub.publish(heading_msg)
+
         
         if 'HEAD' in parsed_sentence and 'AGRICA' in parsed_sentence:
             data = parsed_sentence['AGRICA']        
