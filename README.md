@@ -4,6 +4,9 @@ This is ROS1 driver for [H-RTK Unicore UM982 module](https://holybro.com/product
 
 ## TODO:
 
+- check published outdoor
+
+
 - publish msg from UNIHEADINGA: ok
         - heading and pitch with std
 - publish msg from AGRICA

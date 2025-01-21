@@ -86,7 +86,7 @@ def convert_solution_status(field):
     else:
         return -1 # something wrong
 
-pose_type = {
+POSE_TYPE = {
     'NONE': 0, # No solution
     'FIXEDPOS': 1, # Position fixed by the FIX POSITION command
     'FIXEDHEIGHT': 2, # Not supported currently
@@ -119,7 +119,7 @@ def convert_uniheading_pose_type(field):
         0,1,2,8...
     """
 
-    return pose_type(field, -1)
+    return POSE_TYPE.get(field)
     
 def convert_mask(field):
     """Convert a UNICORE Galileo & BDS-3 Signal Mask to Enum

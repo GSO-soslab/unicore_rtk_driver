@@ -11,7 +11,7 @@ from std_msgs.msg import Float32, String
 import tf
 import tf.transformations
 import tf2_ros
-
+import logging
 import nmea_parser
 import unicore_parser
 
@@ -30,6 +30,7 @@ class UnicoreDriver:
 
         self.init()
 
+        ### from unicore doc
         self.crcTable = [
             0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419, 0x706af48f,
             0xe963a535, 0x9e6495a3, 0x0edb8832, 0x79dcb8a4, 0xe0d5e91e, 0x97d2d988,
@@ -83,6 +84,8 @@ class UnicoreDriver:
 
         self.use_gnss_time = rospy.get_param('~use_gnss_time', False)
 
+        self.debug = rospy.get_param('~debug', False)
+
         ### NMEA 0183 msg
         self.hpr_heading_topic = rospy.get_param('~hpr_heading_topic', 'unicore/heading')
         self.fix_topic = rospy.get_param('~fix_topic', 'unicore/fix')
@@ -92,8 +95,8 @@ class UnicoreDriver:
         self.simple_heading_topic = rospy.get_param('~simple_heading_topic', 'unicore/simple_heading')
 
         ### Unicore msg
-        self.unicore_heading_topic = rospy.get_param('~unicore_heading_topic', 'unicore/unicre_heading')
-        self.unicore_vel_topic = rospy.get_param('~unicore_vel_topic', 'unicore/unicre_velocity')
+        self.unicore_heading_topic = rospy.get_param('~unicore_heading_topic', 'unicore/unicore_heading')
+        self.unicore_velocity_topic = rospy.get_param('~unicore_velocity_topic', 'unicore/unicore_velocity')
 
         self.tx_cmd_topic = rospy.get_param('~tx_cmd_topic', 'unicore/tx_cmd')
 
@@ -112,6 +115,12 @@ class UnicoreDriver:
         """
         This function is used for ros setup: publisher, subscribers, service, timer and more
         """
+
+        logger = logging.getLogger("rosout")
+        if self.debug:
+            logger.setLevel(logging.DEBUG)
+        else:
+            logger.setLevel(logging.INFO)
 
         ### publihser
         self.hpr_heading_pub = rospy.Publisher(self.hpr_heading_topic, PoseWithCovarianceStamped, queue_size=10) # FIXME REMOVE IT?
@@ -266,7 +275,7 @@ class UnicoreDriver:
         ### check checksum
         if not self.check_nmea_string(nmea_string):
             rospy.logwarn(
-                "Received a sentence with an invalid checksum. " +
+                "Unicore Driver - Received a sentence with an invalid checksum. " +
                 "nmea string was: %s" % repr(nmea_string))
             return False
             
@@ -274,15 +283,22 @@ class UnicoreDriver:
         parsed_sentence = nmea_parser.parse_nmea_sentence(nmea_string)
         if not parsed_sentence:
             rospy.logdebug(
-                "Failed to parse NMEA sentence. Sentence was: %s" % 
+                "Unicore Driver - Failed to parse NMEA sentence. Sentence was: %s" % 
                 nmea_string)
             return False
         
+        ### publish the NMEA
+        self.send_sentence(nmea_string)
+
+        # DEBUG:
+        rospy.logdebug("Unicore Driver - NMEA: " + nmea_string)
+        rospy.logdebug(parsed_sentence)
+
         if 'GGA' in parsed_sentence:
             data = parsed_sentence['GGA']
 
             if math.isnan(data['utc_time'][0]):
-                rospy.logwarn("Time in the NMEA GGA sentence is NOT valid")
+                rospy.logwarn("Unicore Driver - Time in the NMEA GGA sentence is NOT valid")
                 return False
             
             ### get timestamp
@@ -328,6 +344,11 @@ class UnicoreDriver:
             if math.isnan(data['utc_time'][0]):
                 rospy.logwarn("Time in the NMEA RMC sentence is NOT valid")
                 return False
+
+            ### check the gnss time and pc time, cause other NMEA msg utc_time_pc as gnss time
+            if abs(data['utc_time'][0] - data['utc_time_pc'][0]) > 2.0:
+                rospy.logwarn("Unicore Driver - System may not time sync, UTC and System time are different: UTC:%d, System:%d" 
+                    % (data['utc_time'][0], data['utc_time_pc'][0]))
             
             ### TimeReference msg
             time_ref_msg = TimeReference()
@@ -378,11 +399,11 @@ class UnicoreDriver:
 
             ### get actual GNSS time
             if math.isnan(data['utc_time'][0]):
-                rospy.logwarn("Time in the NMEA HPR sentence is NOT valid")
+                rospy.logwarn("Unicore Driver - Time in the NMEA HPR sentence is NOT valid")
                 return False
             
             if data['fix_type'] == 0:
-                rospy.logwarn("Fix in the NMEA HPR sentence is NOT valid")
+                rospy.logwarn("Unicore Driver - NMEA HPR sentence is NOT valid")
                 return False                
             
             heading_msg = PoseWithCovarianceStamped()
@@ -403,13 +424,6 @@ class UnicoreDriver:
             ### publish heading
             self.hpr_heading_pub.publish(heading_msg)
             self.simple_heading_pub.publish(simple_heading_msg)
-
-        ### publish the NMEA
-        self.send_sentence(nmea_string)
-
-        # DEBUG:
-        # print("nmea: " + nmea_string)
-        # print(parsed_sentence)
 
     def calculate_crc32(self, sz_buf: str) -> int:
         crc = 0
@@ -453,7 +467,7 @@ class UnicoreDriver:
         ### check checksum
         if not self.check_unicore_string(unicore_string):
             rospy.logwarn(
-                "Received a sentence with an invalid checksum. " +
+                "Unicore Driver - Received a sentence with an invalid checksum. " +
                 "unicore string was: %s" % repr(unicore_string))
             return False
 
@@ -461,20 +475,23 @@ class UnicoreDriver:
         parsed_sentence = unicore_parser.parse_unicore_sentence(unicore_string)
         if not parsed_sentence:
             rospy.logwarn(
-                "Failed to parse UNICORE sentence. Sentence was: %s" % 
+                "Unicore Driver - Failed to parse UNICORE sentence. Sentence was: %s" % 
                 unicore_string)
             return False
         
+        ### publish the Unicore ASCII string
+        self.send_sentence(unicore_string)
+
         # DEBUG:
-        print("unicore: " + unicore_string)        
-        print(parsed_sentence)
+        rospy.logdebug("Unicore Driver - UNICORE: " + unicore_string)
+        rospy.logdebug(parsed_sentence)
 
         if 'HEAD' in parsed_sentence and 'UNIHEADINGA' in parsed_sentence:
             data = parsed_sentence['UNIHEADINGA']
 
             ### check the vaild status
             if data['Pose_Type'] == 0:
-                rospy.logwarn("Unicore msg - FUNIHEADINGA not vaild")
+                rospy.logwarn("Unicore Driver - UNICORE UNIHEADINGA sentence is not vaild")
                 return 
 
             ### assign heading msg: header
@@ -487,19 +504,18 @@ class UnicoreDriver:
             heading_msg.pose.covariance[28] = data['Pitch_Std'] ** 2 
             heading_msg.pose.covariance[35] = data['Heading_Std'] ** 2 
 
-            print("Unicore - UNIHEADINGA: picth=%f, heading:%f" % 
+            print("Unicore msg - UNIHEADINGA: picth=%f, heading:%f" % 
                   (data['Pitch']*180/3.1415926, data['Heading']*180/3.1415926))
             
             ### publish heading
             self.unicore_heading_pub.publish(heading_msg)
-
         
         if 'HEAD' in parsed_sentence and 'AGRICA' in parsed_sentence:
             data = parsed_sentence['AGRICA']        
  
             ### check the vaild status
             if data['Pose_Type'] == 0 or data['Speed_Vaild']:
-                rospy.logwarn("Unicore msg - AGRICA not vaild")
+                rospy.logwarn("Unicore Driver - UNICORE AGRICA sentence is not vaild")
                 return 
 
             ### get the gnss time, but wthiout nanosec
@@ -532,7 +548,7 @@ class UnicoreDriver:
 
         if self.nmea_pub.get_num_connections() > 0:
             msg = Sentence()
-            msg.header.stamp = rospy.Time.now()
+            msg.header.stamp = self.time_io
             msg.header.frame_id = "unicore_gps"
             msg.sentence = data
             self.nmea_pub.publish(msg)
@@ -546,7 +562,7 @@ class UnicoreDriver:
         Example: To stop [UNIHEADING] msg at 1 Hz and send "UNLOG UNIHEADINGA"
         """
 
-        rospy.loginfo("Received msg: %s", data.data)
+        rospy.loginfo("Unicore Driver - Received msg: %s", data.data)
 
         # enable some param
         cmd = data.data + "\r\n"
@@ -574,7 +590,8 @@ class UnicoreDriver:
         elif data_type == StringType.UNICORE:
             self.parse_unicore(data_string)
         else:
-            print("failure")
+            rospy.logwarn("Unicore Driver - not recognised sentence!")
+
 
     def close(self):
         if self.ser.is_open:
@@ -589,7 +606,7 @@ def main():
     rospy.init_node("Unicore_RTK_Driver")
 
     try:
-        rospy.loginfo("Start node ...")
+        rospy.loginfo("Unicore Driver - Start node ...")
         node = UnicoreDriver()
         rospy.spin()
 
@@ -600,7 +617,7 @@ def main():
         
         node.close()
 
-        rospy.loginfo("Everything is shutdown now!")
+        rospy.loginfo("Unicore Driver - Everything is shutdown now!")
 
 
 ### Call the main function

@@ -318,5 +318,6 @@ def parse_nmea_sentence(nmea_sentence):
 
     if sentence_type == "RMC":
         parsed_sentence["utc_time"] = convert_time_rmc(fields[9], fields[1])
+        parsed_sentence["utc_time_pc"] = convert_time(fields[1])
 
     return {sentence_type: parsed_sentence}
