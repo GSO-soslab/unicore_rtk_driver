@@ -4,7 +4,7 @@ from enum import Enum
 import serial
 import math
 import rospy
-from geometry_msgs.msg import Quaternion, PoseWithCovarianceStamped, TwistStamped
+from geometry_msgs.msg import Quaternion, PoseWithCovarianceStamped, TwistStamped, TwistWithCovarianceStamped
 from sensor_msgs.msg import NavSatFix, NavSatStatus, TimeReference
 from nmea_msgs.msg import Sentence
 from std_msgs.msg import Float32, String
@@ -93,6 +93,7 @@ class UnicoreDriver:
 
         ### Unicore msg
         self.unicore_heading_topic = rospy.get_param('~unicore_heading_topic', 'unicore/unicre_heading')
+        self.unicore_vel_topic = rospy.get_param('~unicore_vel_topic', 'unicore/unicre_velocity')
 
         self.tx_cmd_topic = rospy.get_param('~tx_cmd_topic', 'unicore/tx_cmd')
 
@@ -113,14 +114,15 @@ class UnicoreDriver:
         """
 
         ### publihser
-        self.hpr_heading_pub = rospy.Publisher(self.hpr_heading_topic, PoseWithCovarianceStamped, queue_size=10)
+        self.hpr_heading_pub = rospy.Publisher(self.hpr_heading_topic, PoseWithCovarianceStamped, queue_size=10) # FIXME REMOVE IT?
         self.nmea_pub = rospy.Publisher(self.nmea_topic, Sentence, queue_size=10)
         self.fix_pub = rospy.Publisher(self.fix_topic, NavSatFix, queue_size=10)
         self.time_ref_pub = rospy.Publisher(self.time_ref_topic, TimeReference, queue_size=10)
-        self.global_vel_pub = rospy.Publisher(self.global_vel_topic, TwistStamped, queue_size=10)
+        self.global_vel_pub = rospy.Publisher(self.global_vel_topic, TwistStamped, queue_size=10) # FIXME REMOVE IT?
         self.simple_heading_pub = rospy.Publisher(self.simple_heading_topic, Float32, queue_size=10)
 
         self.unicore_heading_pub = rospy.Publisher(self.unicore_heading_topic, PoseWithCovarianceStamped, queue_size=10)
+        self.unicore_velocity_pub = rospy.Publisher(self.unicore_velocity_topic, TwistWithCovarianceStamped, queue_size=10)
 
         ### subscriber
         rospy.Subscriber(self.tx_cmd_topic, String, self.tx_cmd_callback)
@@ -482,8 +484,8 @@ class UnicoreDriver:
             ### assign heading msg: pose
             heading_msg.pose.pose.orientation = self.rpy_to_quaternion(
                 0, data['Pitch'], data['Heading'])
-            heading_msg.pose.covariance[28] = data['Pitch_Std'] * data['Pitch_Std']  
-            heading_msg.pose.covariance[35] = data['Heading_Std'] * data['Heading_Std'] 
+            heading_msg.pose.covariance[28] = data['Pitch_Std'] ** 2 
+            heading_msg.pose.covariance[35] = data['Heading_Std'] ** 2 
 
             print("Unicore - UNIHEADINGA: picth=%f, heading:%f" % 
                   (data['Pitch']*180/3.1415926, data['Heading']*180/3.1415926))
@@ -495,8 +497,36 @@ class UnicoreDriver:
         if 'HEAD' in parsed_sentence and 'AGRICA' in parsed_sentence:
             data = parsed_sentence['AGRICA']        
  
-             # assign the data
-            GNSS = data['GNSS']
+            ### check the vaild status
+            if data['Pose_Type'] == 0 or data['Speed_Vaild']:
+                rospy.logwarn("Unicore msg - AGRICA not vaild")
+                return 
+
+            ### get the gnss time, but wthiout nanosec
+            unix_secs = unicore_parser.convert_time_argica(
+                data['Year'], data['Month'], data['Day'], 
+                data['Hour'], data['Minute'], data['Second'])
+            
+            twist_msg = TwistWithCovarianceStamped()
+
+            ### assign heading msg: header
+            if self.use_gnss_time:
+                twist_msg.header.stamp = rospy.Time(unix_secs, 0)
+            else:
+                twist_msg.header.stamp = self.time_io      
+            twist_msg.header.frame_id = self.heading_frame_id
+
+            ### assign the velocity and covariance
+            # FIXME IS THIS VELOCITY BASED OON LOCAL SENSOR ENU FRAME?
+            # FIXME OR THE SENSER BASED VELOCITY CONVERTED TO GLOBAL ENU FRAME?
+            twist_msg.twist.twist.linear.x = data['Vel_East']
+            twist_msg.twist.twist.linear.y = data['Vel_North']
+            twist_msg.twist.twist.linear.z = data['Vel_Up']
+            twist_msg.twist.covariance[0] = data['Vel_Std_East'] ** 2
+            twist_msg.twist.covariance[7] = data['Vel_Std_North'] ** 2
+            twist_msg.twist.covariance[14] = data['Vel_Std_Up'] ** 2
+
+            self.unicore_velocity_pub(twist_msg)
 
     def send_sentence(self, data):
 

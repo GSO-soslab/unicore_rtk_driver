@@ -3,6 +3,8 @@
 import re
 import logging
 import math
+import datetime
+import calendar
 
 logger = logging.getLogger('rosout')
 field_delimiter_regex = re.compile(r'[,*]')
@@ -107,7 +109,7 @@ pose_type = {
     'PPP' : 69 # Precise Point Positioning
 } 
 
-def convert_pose_type(field):
+def convert_uniheading_pose_type(field):
     """Convert a UNICORE Position or Velocity type into Enum
 
     Args:
@@ -136,6 +138,51 @@ def convert_mask(field):
         bits.append((safe_int(field) >> i) & 1)
     return bits
 
+def convert_agric_speed_type(field):
+    """Convert a Unicore AGRIC - Speed_Type
+
+    Args:
+        field (int): 0 or 1
+
+    Returns:
+        True if the solution is vaild
+    """
+    if field == 0:
+        return True
+    elif field == 1:
+        return False
+    else:
+        return False
+    
+def convert_time_argica(year, month, day, hour, min, sec):
+    """Convert a Unicore ARGICA date to UNIX epoch time.
+
+    Args:
+        year (int): UTC-year, for example: 2016-> 16; 2116-> 116
+        month (int): UTC-month
+        day (int): UTC-day
+        hour (int): UTC-hour
+        min (int): UTC-min
+        sec (int): UTC-sec
+
+    Returns:
+        unix seconds(int): unix seconds
+    """
+
+    pc_year = datetime.date.today().year
+
+    # Resolve the ambiguity of century
+    """
+    example 1: utc_year = 99, pc_year = 2100
+    years = 2100 + int((2100 % 100 - 99) / 50.0) = 2099
+    example 2: utc_year = 00, pc_year = 2099
+    years = 2099 + int((2099 % 100 - 00) / 50.0) = 2100
+    """
+    actual_year = pc_year + int((pc_year % 100 - year) / 50.0)
+
+    unix_secs = calendar.timegm((actual_year, month, day, hour, min, sec))
+    return unix_secs
+    
 parse_maps = {
     "HEAD": [
         # ID:1 '#', Sync character. The ASCII message always starts with a “#”.
@@ -180,7 +227,7 @@ parse_maps = {
         #      8: Velocity computed using instantaneous Doppler       
         #      16: Single point positioning
         #      ...
-        ("Pose_Type", convert_pose_type, 1),
+        ("Pose_Type", convert_uniheading_pose_type, 1),
         # ID:4 Baseline length
         ("Base_Len", safe_float, 2),
         # ID:5 Heading (0 to 360.0 degrees)
@@ -362,10 +409,10 @@ parse_maps = {
         # ID:54 Reserved
         # ("Reserved2", safe_int, 52),
         # ID:55 Number of Galileo satellites
-        ("Num_GAL", safe_float, 53),
+        ("Num_GAL", safe_int, 53),
         # ID:56 0: speed solution status valid
         #       1: speed solution status invalid
-        ("Speed_Vaild", safe_float, 54),
+        ("Speed_Vaild", convert_agric_speed_type, 54),
         # ID:57 Reserved
         # ("Reserved3", safe_int, 55),
         # ID:58 Reserved

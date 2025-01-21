@@ -4,11 +4,10 @@ This is ROS1 driver for [H-RTK Unicore UM982 module](https://holybro.com/product
 
 ## TODO:
 
-- publish msg from UNIHEADINGA
+- publish msg from UNIHEADINGA: ok
         - heading and pitch with std
 - publish msg from AGRICA
         - ENU velocity with STD
-        - slave lat/lon/alt, but no std
         - rover station lat/lon/alt with std
                 - is this the primary antenna ?
                 - but no HDOP, what is the `proper way to calculate covariance of gps measurements`
