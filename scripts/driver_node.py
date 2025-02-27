@@ -430,7 +430,7 @@ class UnicoreDriver:
         crc = 0
         for byte in sz_buf.encode('utf-8'):  # Encode string as bytes
             crc = self.crcTable[(crc ^ byte) & 0xff] ^ (crc >> 8)
-        return hex(crc)
+        return '{:08x}'.format(crc)
 
     def check_unicore_string(self, unicore_string):
         """
@@ -452,10 +452,10 @@ class UnicoreDriver:
         # DEBUG:
         # print('given checksum:')
         # print(checksum)
-        # print('calc checksum: ')
-        # print(str(calc_checksum)[2:])
+        # print('calc checksum str: ')
+        # print(calc_checksum)
 
-        if(str(calc_checksum)[2:] == checksum):
+        if(calc_checksum == checksum):
             return True
         else:
             return False
