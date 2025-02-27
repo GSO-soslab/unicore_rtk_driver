@@ -8,6 +8,7 @@ from geometry_msgs.msg import Quaternion, PoseWithCovarianceStamped, TwistStampe
 from sensor_msgs.msg import NavSatFix, NavSatStatus, TimeReference
 from nmea_msgs.msg import Sentence
 from std_msgs.msg import Float32, String
+from nav_msgs.msg import Odometry
 import tf
 import tf.transformations
 import tf2_ros
@@ -87,7 +88,7 @@ class UnicoreDriver:
         self.debug = rospy.get_param('~debug', False)
 
         ### NMEA 0183 msg
-        self.hpr_heading_topic = rospy.get_param('~hpr_heading_topic', 'unicore/heading')
+        self.hpr_heading_topic = rospy.get_param('~hpr_heading_topic', 'unicore/hpr_heading')
         self.fix_topic = rospy.get_param('~fix_topic', 'unicore/fix')
         self.time_ref_topic = rospy.get_param('~fix_topic', 'unicore/time_reference')
         self.nmea_topic = rospy.get_param('~nmea_topic', 'unicore/nmea')
@@ -95,7 +96,7 @@ class UnicoreDriver:
         self.simple_heading_topic = rospy.get_param('~simple_heading_topic', 'unicore/simple_heading')
 
         ### Unicore msg
-        self.unicore_heading_topic = rospy.get_param('~unicore_heading_topic', 'unicore/unicore_heading')
+        self.unicore_heading_topic = rospy.get_param('~unicore_heading_topic', 'unicore/heading_odometry')
         self.unicore_velocity_topic = rospy.get_param('~unicore_velocity_topic', 'unicore/unicore_velocity')
 
         self.tx_cmd_topic = rospy.get_param('~tx_cmd_topic', 'unicore/tx_cmd')
@@ -130,7 +131,7 @@ class UnicoreDriver:
         self.global_vel_pub = rospy.Publisher(self.global_vel_topic, TwistStamped, queue_size=10) # FIXME REMOVE IT?
         self.simple_heading_pub = rospy.Publisher(self.simple_heading_topic, Float32, queue_size=10)
 
-        self.unicore_heading_pub = rospy.Publisher(self.unicore_heading_topic, PoseWithCovarianceStamped, queue_size=10)
+        self.unicore_heading_pub = rospy.Publisher(self.unicore_heading_topic, Odometry, queue_size=10)
         self.unicore_velocity_pub = rospy.Publisher(self.unicore_velocity_topic, TwistWithCovarianceStamped, queue_size=10)
 
         ### subscriber
@@ -494,19 +495,19 @@ class UnicoreDriver:
                 rospy.logwarn("Unicore Driver - UNICORE UNIHEADINGA sentence is not vaild")
                 return 
 
-            ### assign heading msg: header
-            heading_msg = PoseWithCovarianceStamped()
+            # print("Unicore msg - UNIHEADINGA: picth=%f, heading:%f" % 
+            #       (data['Pitch']*180/3.1415926, data['Heading']*180/3.1415926))
+            
+            heading_msg = Odometry()
             heading_msg.header.stamp = self.time_io            
             heading_msg.header.frame_id = self.heading_frame_id
-            ### assign heading msg: pose
+            heading_msg.child_frame_id = self.gps_frame_id
+                ### assign heading msg: pose
             heading_msg.pose.pose.orientation = self.rpy_to_quaternion(
                 0, data['Pitch'], data['Heading'])
             heading_msg.pose.covariance[28] = data['Pitch_Std'] ** 2 
-            heading_msg.pose.covariance[35] = data['Heading_Std'] ** 2 
+            heading_msg.pose.covariance[35] = data['Heading_Std'] ** 2             
 
-            print("Unicore msg - UNIHEADINGA: picth=%f, heading:%f" % 
-                  (data['Pitch']*180/3.1415926, data['Heading']*180/3.1415926))
-            
             ### publish heading
             self.unicore_heading_pub.publish(heading_msg)
         
@@ -542,7 +543,7 @@ class UnicoreDriver:
             twist_msg.twist.covariance[7] = data['Vel_Std_North'] ** 2
             twist_msg.twist.covariance[14] = data['Vel_Std_Up'] ** 2
 
-            self.unicore_velocity_pub(twist_msg)
+            self.unicore_velocity_pub.publish(twist_msg)
 
     def send_sentence(self, data):
 

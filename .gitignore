@@ -11,11 +11,14 @@
 # CMake
 cmake-build-*/
 
+# test result
+result
+
 # File-based project format
 *.iws
 
 # IntelliJ
-out/    
+out/
 
 # mpeltonen/sbt-idea plugin
 .idea_modules/
@@ -204,9 +207,6 @@ srv/_*.py
 qtcreator-*
 *.user
 
-__pycache__
-scripts/__pycache__
-
 /planning/cfg
 /planning/docs
 /planning/src
@@ -262,5 +262,3 @@ tags
 docs/_build
 
 # End of https://www.toptal.com/developers/gitignore/api/clion,ros,pycharm,visualstudiocode,linux,vim,cmake,macos
-
-

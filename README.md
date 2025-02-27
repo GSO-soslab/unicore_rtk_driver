@@ -33,23 +33,59 @@ UNIHEADINGA: 143 characters + 2 more for '\r\n', total will be 145
 - check if all the data vaild before publish
 
 ## published message:
-- heading message:
-    - info: the true north heading, unit: degree
-    - type: std_msgs/Float32
-    - topic: "unicore/heading"
-    - usage: for checking heading information
+- GPS fix:
+    - info: gps fix message
+    - type: sensor_msgs/NavSatFix
+    - topic: unicore/fix
+    - usage: subsribe by other node to generate gps odometry
 
-- heading odometry message: 
-    - info: the true north heading, represent in orientation
-    - type: nav_msgs/Odometry
-    - topic: "unicore/heading_odom" 
-    - usage: feed to robot_localization for heading update
+- Velocity:
+    - info: todo
+    - type: geometry_msgs/TwistStamped
+    - topic: unicore/global_velocity
+    - usage: todo      
+
+- HPR Heading:
+    - info: the true north heading in the Pose
+    - type: geometry_msgs/PoseWithCovarianceStamped
+    - topic: unicore/hpr_heading
+    - usage: todo
+
 - nmea message:
     - info: GGA / RMC / GST / HDT / VTG
     - type: nmea_msgs/Sentence 
-    - topic: "unicore/nmea" 
-    - usage: feed to nmea_navsat_driver/nmea_topic_driver for gps fix update
+    - topic: unicore/nmea 
+    - usage: the raw data or feed to nmea_navsat_driver/nmea_topic_driver for gps fix update
 
+- simple heading
+    - info: the true north heading in degree
+    - type: std_msgs/Float32
+    - topic: unicore/simple_heading
+    - usage: quick check the heading
+
+- time reference:
+    - info: the GPS UTC time
+    - type: sensor_msgs/TimeReference
+    - topic: unicore/time_reference
+    - usgae: time sync
+
+- setup commands:
+    - info: the commands used to setup GPS
+    - type: std_msgs/String
+    - topic: unicore/tx_cmd
+    - usgae: To publish [UNIHEADING] msg at 1 Hz and send "UNIHEADINGA COM3 1"
+
+- unicore heading odometry: 
+    - info: from UNIHEADINGA message, the true north heading, represent in Odometry
+    - type: nav_msgs/Odometry
+    - topic: unicore/heading_odom
+    - usage: feed to robot_localization for heading update
+
+- unicore velocity:
+    - info: todo
+    - type: geometry_msgs/TwistWithCovarianceStamped
+    - topic: unicore/unicore_velocity
+    - usage: todo
 
 ## Acknowledgment
 
