@@ -20,7 +20,7 @@ This is ROS1 driver for [H-RTK Unicore UM982 module](https://holybro.com/product
         - GST: ok
                 - `lat/lon/alt std`, use the std here
         - RMC: ok
-                - time_ref:GNSS/data['time]
+                - time_ref:GNSS/data['time']
                 - velocity for test
         - HPR: ok
                 - publish the HPR heading and simple heading, for test
@@ -66,7 +66,7 @@ UNIHEADINGA: 143 characters + 2 more for '\r\n', total will be 145
 - time reference:
     - info: the GPS UTC time
     - type: sensor_msgs/TimeReference
-    - topic: unicore/time_reference
+    - topic: unicore/time_ref
     - usgae: time sync
 
 - setup commands:

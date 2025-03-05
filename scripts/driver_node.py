@@ -90,7 +90,7 @@ class UnicoreDriver:
         ### NMEA 0183 msg
         self.hpr_heading_topic = rospy.get_param('~hpr_heading_topic', 'unicore/hpr_heading')
         self.fix_topic = rospy.get_param('~fix_topic', 'unicore/fix')
-        self.time_ref_topic = rospy.get_param('~fix_topic', 'unicore/time_reference')
+        self.time_ref_topic = rospy.get_param('~fix_topic', 'unicore/time_ref')
         self.nmea_topic = rospy.get_param('~nmea_topic', 'unicore/nmea')
         self.global_vel_topic = rospy.get_param('~global_vel_topic', 'unicore/global_velocity')
         self.simple_heading_topic = rospy.get_param('~simple_heading_topic', 'unicore/simple_heading')
