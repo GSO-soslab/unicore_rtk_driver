@@ -550,7 +550,7 @@ class UnicoreDriver:
         if self.nmea_pub.get_num_connections() > 0:
             msg = Sentence()
             msg.header.stamp = self.time_io
-            msg.header.frame_id = "unicore_gps"
+            msg.header.frame_id = self.gps_frame_id
             msg.sentence = data
             self.nmea_pub.publish(msg)
 
