@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
-
 from enum import Enum
 import serial
 import math
-import rospy
+import rclpy
+from rclpy.node import Node
 from geometry_msgs.msg import Quaternion, PoseWithCovarianceStamped, TwistStamped, TwistWithCovarianceStamped
 from sensor_msgs.msg import NavSatFix, NavSatStatus, TimeReference
 from nmea_msgs.msg import Sentence
@@ -11,25 +10,27 @@ from std_msgs.msg import Float32, String
 from nav_msgs.msg import Odometry
 import tf
 import tf.transformations
-import tf2_ros
+from tf2_ros import TransformBroadcaster
+# import tf2_ros
 import logging
 import nmea_parser
 import unicore_parser
+from builtin_interfaces.msg import Time
 
 class StringType(Enum):
     FAILURE = 0
     NMEA = 1
     UNICORE = 2
 
-class UnicoreDriver:
+class UnicoreDriver(Node):
 
     def __init__(self):
+        super().__init__('unicore_rtk_driver_node')
 
         self.get_params()
 
         self.setup_ros()
 
-        self.init()
 
         ### from unicore doc
         self.crcTable = [
@@ -80,72 +81,106 @@ class UnicoreDriver:
     def get_params(self):
 
         ### configuration
-        self.serial_port = rospy.get_param('~device', '/dev/ttyUSB0')
-        self.serial_baudrate = rospy.get_param('~baudrate', 115200)
+        self.declare_parameter('device', '/dev/ttyUSB0')
+        self.serial_port = self.get_parameter('device').get_parameter_value().string_value
 
-        self.use_gnss_time = rospy.get_param('~use_gnss_time', False)
+        self.declare_parameter('baudrate', 115200)
+        self.baud_rate = self.get_parameter('baudrate').get_parameter_value().integer_value
 
-        self.debug = rospy.get_param('~debug', False)
+        self.declare_parameter('use_gnss_time', False)
+        self.use_gnss_time = self.get_parameter('use_gnss_time').get_parameter_value().bool_value
+
+
+
+        # Declare and get parameters
+        self.declare_parameter('debug', False)
+        self.debug = self.get_parameter('debug').get_parameter_value().bool_value
 
         ### NMEA 0183 msg
-        self.hpr_heading_topic = rospy.get_param('~hpr_heading_topic', 'unicore/hpr_heading')
-        self.fix_topic = rospy.get_param('~fix_topic', 'unicore/fix')
-        self.time_ref_topic = rospy.get_param('~fix_topic', 'unicore/time_ref')
-        self.nmea_topic = rospy.get_param('~nmea_topic', 'unicore/nmea')
-        self.global_vel_topic = rospy.get_param('~global_vel_topic', 'unicore/global_velocity')
-        self.simple_heading_topic = rospy.get_param('~simple_heading_topic', 'unicore/simple_heading')
+        self.declare_parameter('hpr_heading_topic', 'unicore/hpr_heading')
+        self.hpr_heading_topic = self.get_parameter('hpr_heading_topic').get_parameter_value().string_value
+
+        self.declare_parameter('fix_topic', 'unicore/fix')
+        self.fix_topic = self.get_parameter('fix_topic').get_parameter_value().string_value
+
+        self.declare_parameter('time_ref_topic', 'unicore/time_ref')
+        self.time_ref_topic = self.get_parameter('time_ref_topic').get_parameter_value().string_value
+
+        self.declare_parameter('nmea_topic', 'unicore/nmea')
+        self.nmea_topic = self.get_parameter('nmea_topic').get_parameter_value().string_value
+
+        self.declare_parameter('global_vel_topic', 'unicore/global_velocity')
+        self.global_vel_topic = self.get_parameter('global_vel_topic').get_parameter_value().string_value
+
+        self.declare_parameter('simple_heading_topic', 'unicore/simple_heading')
+        self.simple_heading_topic = self.get_parameter('simple_heading_topic').get_parameter_value().string_value
 
         ### Unicore msg
-        self.unicore_heading_topic = rospy.get_param('~unicore_heading_topic', 'unicore/heading_odometry')
-        self.unicore_velocity_topic = rospy.get_param('~unicore_velocity_topic', 'unicore/unicore_velocity')
+        self.declare_parameter('unicore_heading_topic', 'unicore/heading_odometry')
+        self.unicore_heading_topic = self.get_parameter('unicore_heading_topic').get_parameter_value().string_value
 
-        self.tx_cmd_topic = rospy.get_param('~tx_cmd_topic', 'unicore/tx_cmd')
+        self.declare_parameter('unicore_velocity_topic', 'unicore/unicore_velocity')
+        self.unicore_velocity_topic = self.get_parameter('unicore_velocity_topic').get_parameter_value().string_value
 
-        self.heading_frame_id = rospy.get_param('~heading_frame_id', 'world_ned')
-        self.gps_frame_id = rospy.get_param('~gps_frame_id', 'unicore_gps')
+        self.declare_parameter('tx_cmd_topic', 'unicore/tx_cmd')
+        self.tx_cmd_topic = self.get_parameter('tx_cmd_topic').get_parameter_value().string_value
+
+        self.declare_parameter('heading_frame_id', 'world_ned')
+        self.heading_frame_id = self.get_parameter('heading_frame_id').get_parameter_value().string_value
+
+        self.declare_parameter('gps_frame_id', 'unicore_gps')
+        self.gps_frame_id = self.get_parameter('gps_frame_id').get_parameter_value().string_value
 
         ### epe = estimated position error
-        self.default_epe_quality0 = rospy.get_param('~epe_quality0', 1000000)
-        self.default_epe_quality1 = rospy.get_param('~epe_quality1', 4.0)
-        self.default_epe_quality2 = rospy.get_param('~epe_quality2', 0.1)
-        self.default_epe_quality4 = rospy.get_param('~epe_quality4', 0.02)
-        self.default_epe_quality5 = rospy.get_param('~epe_quality5', 4.0)
-        self.default_epe_quality9 = rospy.get_param('~epe_quality9', 3.0)
+        self.declare_parameter('epe_quality0', 1000000.0)
+        self.default_epe_quality0 = self.get_parameter('epe_quality0').get_parameter_value().double_value
+
+        self.declare_parameter('epe_quality1', 4.0)
+        self.default_epe_quality1 = self.get_parameter('epe_quality1').get_parameter_value().double_value
+
+        self.declare_parameter('epe_quality2', 0.1)
+        self.default_epe_quality2 = self.get_parameter('epe_quality2').get_parameter_value().double_value
+
+        self.declare_parameter('epe_quality4', 0.02)
+        self.default_epe_quality4 = self.get_parameter('epe_quality4').get_parameter_value().double_value
+
+        self.declare_parameter('epe_quality5', 4.0)
+        self.default_epe_quality5 = self.get_parameter('epe_quality5').get_parameter_value().double_value
+
+        self.declare_parameter('epe_quality9', 3.0)
+        self.default_epe_quality9 = self.get_parameter('epe_quality9').get_parameter_value().double_value
 
     def setup_ros(self):
-        """
-        This function is used for ros setup: publisher, subscribers, service, timer and more
-        """
-
+        # Setup logger
         logger = logging.getLogger("rosout")
         if self.debug:
             logger.setLevel(logging.DEBUG)
         else:
             logger.setLevel(logging.INFO)
 
-        ### publihser
-        self.hpr_heading_pub = rospy.Publisher(self.hpr_heading_topic, PoseWithCovarianceStamped, queue_size=10) # FIXME REMOVE IT?
-        self.nmea_pub = rospy.Publisher(self.nmea_topic, Sentence, queue_size=10)
-        self.fix_pub = rospy.Publisher(self.fix_topic, NavSatFix, queue_size=10)
-        self.time_ref_pub = rospy.Publisher(self.time_ref_topic, TimeReference, queue_size=10)
-        self.global_vel_pub = rospy.Publisher(self.global_vel_topic, TwistStamped, queue_size=10) # FIXME REMOVE IT?
-        self.simple_heading_pub = rospy.Publisher(self.simple_heading_topic, Float32, queue_size=10)
+        # Publishers
+        self.hpr_heading_pub = self.create_publisher(PoseWithCovarianceStamped, self.hpr_heading_topic, 10)
+        self.nmea_pub = self.create_publisher(Sentence, self.nmea_topic, 10)
+        self.fix_pub = self.create_publisher(NavSatFix, self.fix_topic, 10)
+        self.time_ref_pub = self.create_publisher(TimeReference, self.time_ref_topic, 10)
+        self.global_vel_pub = self.create_publisher(TwistStamped, self.global_vel_topic, 10)
+        self.simple_heading_pub = self.create_publisher(Float32, self.simple_heading_topic, 10)
 
-        self.unicore_heading_pub = rospy.Publisher(self.unicore_heading_topic, Odometry, queue_size=10)
-        self.unicore_velocity_pub = rospy.Publisher(self.unicore_velocity_topic, TwistWithCovarianceStamped, queue_size=10)
+        self.unicore_heading_pub = self.create_publisher(Odometry, self.unicore_heading_topic, 10)
+        self.unicore_velocity_pub = self.create_publisher(TwistWithCovarianceStamped, self.unicore_velocity_topic, 10)
 
-        ### subscriber
-        rospy.Subscriber(self.tx_cmd_topic, String, self.tx_cmd_callback)
+        # Subscriber
+        self.tx_cmd_sub = self.create_subscription(String, self.tx_cmd_topic, self.tx_cmd_callback, 10)
 
-        ### setup the serial 
+        # Serial setup
         self.ser = serial.Serial(self.serial_port, self.serial_baudrate, timeout=1)
-        self.ser.flush()  
+        self.ser.flush()
 
-        ### timer
-        rospy.Timer(rospy.Duration(1.0/10.0), self.process)
+        # Timer (10Hz)
+        self.timer = self.create_timer(0.1, self.process)  # 1.0 / 10.0
 
-        ### tf
-        self.tf_br = tf2_ros.TransformBroadcaster()
+        # TF Broadcaster
+        self.tf_br = TransformBroadcaster(self)
 
     def init(self):
 
@@ -215,7 +250,7 @@ class UnicoreDriver:
             data = self.ser.readline().decode('utf-8').strip()
 
             ### get IO time for this sentence 
-            self.time_io = rospy.Time.now()
+            self.time_io = self.get_clock().now()
 
             return data
         else:
@@ -275,36 +310,41 @@ class UnicoreDriver:
 
         ### check checksum
         if not self.check_nmea_string(nmea_string):
-            rospy.logwarn(
-                "Unicore Driver - Received a sentence with an invalid checksum. " +
-                "nmea string was: %s" % repr(nmea_string))
+            self.get_logger().warn(
+                f"Unicore Driver - Received a sentence with an invalid checksum. "
+                f"nmea string was: {repr(nmea_string)}"
+            )
             return False
             
         ### parse a sentence
         parsed_sentence = nmea_parser.parse_nmea_sentence(nmea_string)
         if not parsed_sentence:
-            rospy.logdebug(
-                "Unicore Driver - Failed to parse NMEA sentence. Sentence was: %s" % 
-                nmea_string)
+            self.get_logger().debug(
+                f"Unicore Driver - Failed to parse NMEA sentence. Sentence was: {nmea_string}"
+            )
             return False
         
         ### publish the NMEA
         self.send_sentence(nmea_string)
 
         # DEBUG:
-        rospy.logdebug("Unicore Driver - NMEA: " + nmea_string)
-        rospy.logdebug(parsed_sentence)
+        self.get_logger().debug(f"Unicore Driver - NMEA: {nmea_string}")
+        self.get_logger().debug(str(parsed_sentence))
+
 
         if 'GGA' in parsed_sentence:
             data = parsed_sentence['GGA']
 
             if math.isnan(data['utc_time'][0]):
-                rospy.logwarn("Unicore Driver - Time in the NMEA GGA sentence is NOT valid")
-                return False
+                self.get_logger().warn(
+                f"Unicore Driver - Time in the NMEA GGA sentence is NOT valid"
+                )   
             
             ### get timestamp
             if self.use_gnss_time:
-                self.fix_msg.header.stamp = rospy.Time(data['utc_time'][0], data['utc_time'][1])
+
+                self.fix_msg.header.stamp = Time(sec=data['utc_time'][0], nanosec=data['utc_time'][1])
+
             else:
                 self.fix_msg.header.stamp = self.time_io
             self.fix_msg.header.frame_id = self.gps_frame_id
@@ -343,19 +383,23 @@ class UnicoreDriver:
 
             ### get actual GNSS time
             if math.isnan(data['utc_time'][0]):
-                rospy.logwarn("Time in the NMEA RMC sentence is NOT valid")
+                self.get_logger().warn("Time in the NMEA RMC sentence is NOT valid")
+
                 return False
 
             ### check the gnss time and pc time, cause other NMEA msg utc_time_pc as gnss time
             if abs(data['utc_time'][0] - data['utc_time_pc'][0]) > 2.0:
-                rospy.logwarn("Unicore Driver - System may not time sync, UTC and System time are different: UTC:%d, System:%d" 
-                    % (data['utc_time'][0], data['utc_time_pc'][0]))
+                self.get_logger().warn(
+                    f"Unicore Driver - System may not time sync, UTC and System time are different: "
+                    f"UTC:{data['utc_time'][0]}, System:{data['time_pc'][0]}"
+                )
+
             
             ### TimeReference msg
             time_ref_msg = TimeReference()
 
             if self.use_gnss_time:
-                time_ref_msg.header.stamp = rospy.Time(data['utc_time'][0], data['utc_time'][1])
+                time_ref_msg.header.stamp = Time(sec=data['utc_time'][0], nanosec=data['utc_time'][1])
             else:
                 time_ref_msg.header.stamp = self.time_io            
             time_ref_msg.header.frame_id = self.gps_frame_id
@@ -367,7 +411,7 @@ class UnicoreDriver:
             if self.valid_fix:
                 ### assign vel msg: header
                 if self.use_gnss_time:
-                    self.vel_msg.header.stamp = rospy.Time(data['utc_time'][0], data['utc_time'][1])
+                    self.vel_msg.header.stamp = Time(sec=data['utc_time'][0], nanosec=data['utc_time'][1])
                 else:
                     self.vel_msg.header.stamp = self.time_io            
                 self.vel_msg.header.frame_id = "world"
@@ -400,18 +444,19 @@ class UnicoreDriver:
 
             ### get actual GNSS time
             if math.isnan(data['utc_time'][0]):
-                rospy.logwarn("Unicore Driver - Time in the NMEA HPR sentence is NOT valid")
+                self.get_logger().warn("Unicore Driver - Time in the NMEA HPR sentence is NOT valid")
                 return False
             
             if data['fix_type'] == 0:
-                rospy.logwarn("Unicore Driver - NMEA HPR sentence is NOT valid")
+                self.get_logger().warn("Unicore Driver - NMEA HPR sentence is NOT valid")
                 return False                
             
             heading_msg = PoseWithCovarianceStamped()
 
             ### assign heading msg: header
             if self.use_gnss_time:
-                heading_msg.header.stamp = rospy.Time(data['utc_time'][0], data['utc_time'][1])
+                
+                heading_msg.header.stamp = Time(sec=data['utc_time'][0], nanosec=data['utc_time'][1])
             else:
                 heading_msg.header.stamp = self.time_io            
             heading_msg.header.frame_id = self.heading_frame_id
@@ -467,32 +512,34 @@ class UnicoreDriver:
 
         ### check checksum
         if not self.check_unicore_string(unicore_string):
-            rospy.logwarn(
-                "Unicore Driver - Received a sentence with an invalid checksum. " +
-                "unicore string was: %s" % repr(unicore_string))
+            
+            self.get_logger().warn(
+                f"Unicore Driver - Received a sentence with an invalid checksum. "
+                f"unicore string was: {repr(unicore_string)}")
+
             return False
 
         ### parse a sentence
         parsed_sentence = unicore_parser.parse_unicore_sentence(unicore_string)
         if not parsed_sentence:
-            rospy.logwarn(
-                "Unicore Driver - Failed to parse UNICORE sentence. Sentence was: %s" % 
-                unicore_string)
+            self.get_logger().warn(
+                "Unicore Driver - Failed to parse UNICORE sentence. Sentence was: {unicore_string}" )
             return False
         
         ### publish the Unicore ASCII string
         self.send_sentence(unicore_string)
 
         # DEBUG:
-        rospy.logdebug("Unicore Driver - UNICORE: " + unicore_string)
-        rospy.logdebug(parsed_sentence)
+        self.get_logger().debug(f"Unicore Driver - UNICORE: {unicore_string}")
+        self.get_logger().debug(str(parsed_sentence))
+
 
         if 'HEAD' in parsed_sentence and 'UNIHEADINGA' in parsed_sentence:
             data = parsed_sentence['UNIHEADINGA']
 
             ### check the vaild status
             if data['Pose_Type'] == 0:
-                rospy.logwarn("Unicore Driver - UNICORE UNIHEADINGA sentence is not vaild")
+                self.get_logger().warn("Unicore Driver - UNICORE UNIHEADINGA sentence is not vaild")
                 return 
 
             # print("Unicore msg - UNIHEADINGA: picth=%f, heading:%f" % 
@@ -516,7 +563,7 @@ class UnicoreDriver:
  
             ### check the vaild status
             if data['Pose_Type'] == 0 or data['Speed_Vaild']:
-                rospy.logwarn("Unicore Driver - UNICORE AGRICA sentence is not vaild")
+                self.get_logger().warn("Unicore Driver - UNICORE AGRICA sentence is not vaild")
                 return 
 
             ### get the gnss time, but wthiout nanosec
@@ -528,7 +575,7 @@ class UnicoreDriver:
 
             ### assign heading msg: header
             if self.use_gnss_time:
-                twist_msg.header.stamp = rospy.Time(unix_secs, 0)
+                twist_msg.header.stamp = Time(sec=unix_secs, nanosec=0)
             else:
                 twist_msg.header.stamp = self.time_io      
             twist_msg.header.frame_id = self.heading_frame_id
@@ -563,7 +610,7 @@ class UnicoreDriver:
         Example: To stop [UNIHEADING] msg at 1 Hz and send "UNLOG UNIHEADINGA"
         """
 
-        rospy.loginfo("Unicore Driver - Received msg: %s", data.data)
+        self.get_logger().info(f"Unicore Driver - Received msg: {data.data}")
 
         # enable some param
         cmd = data.data + "\r\n"
@@ -573,7 +620,7 @@ class UnicoreDriver:
         cmd = "saveconfig\r\n"
         self.ser.write(cmd.encode())
 
-    def process(self, event):
+    def process(self):
         ### make sure serial is open
         if not self.ser.is_open:
             return False 
@@ -591,7 +638,7 @@ class UnicoreDriver:
         elif data_type == StringType.UNICORE:
             self.parse_unicore(data_string)
         else:
-            rospy.logwarn("Unicore Driver - not recognised sentence!")
+            self.get_logger().warn("Unicore Driver - not recognised sentence!")
 
 
     def close(self):
@@ -602,25 +649,20 @@ class UnicoreDriver:
         quaternion = tf.transformations.quaternion_from_euler(r, p, y)
         return Quaternion(*quaternion)
     
-def main():
-
-    rospy.init_node("Unicore_RTK_Driver")
+def main(args=None):
+    rclpy.init(args=args)
 
     try:
-        rospy.loginfo("Unicore Driver - Start node ...")
         node = UnicoreDriver()
-        rospy.spin()
-
-    except rospy.ROSInterruptException:
-        rospy.shutdown()
-
-    if rospy.is_shutdown():
-        
+        node.get_logger().info("Unicore Driver - Start node ...")
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
         node.close()
+        node.get_logger().info("Unicore Driver - Everything is shutdown now!")
+        node.destroy_node()
+        rclpy.shutdown()
 
-        rospy.loginfo("Unicore Driver - Everything is shutdown now!")
-
-
-### Call the main function
 if __name__ == '__main__':
     main()
