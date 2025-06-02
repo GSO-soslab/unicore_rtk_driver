@@ -8,13 +8,11 @@ from sensor_msgs.msg import NavSatFix, NavSatStatus, TimeReference
 from nmea_msgs.msg import Sentence
 from std_msgs.msg import Float32, String
 from nav_msgs.msg import Odometry
-import tf
-import tf.transformations
+import tf_transformations
 from tf2_ros import TransformBroadcaster
-# import tf2_ros
 import logging
-import nmea_parser
-import unicore_parser
+from unicore_rtk_driver import nmea_parser
+from unicore_rtk_driver import unicore_parser
 from builtin_interfaces.msg import Time
 
 class StringType(Enum):
@@ -31,6 +29,7 @@ class UnicoreDriver(Node):
 
         self.setup_ros()
 
+        self.init()
 
         ### from unicore doc
         self.crcTable = [
@@ -89,8 +88,6 @@ class UnicoreDriver(Node):
 
         self.declare_parameter('use_gnss_time', False)
         self.use_gnss_time = self.get_parameter('use_gnss_time').get_parameter_value().bool_value
-
-
 
         # Declare and get parameters
         self.declare_parameter('debug', False)
@@ -173,7 +170,7 @@ class UnicoreDriver(Node):
         self.tx_cmd_sub = self.create_subscription(String, self.tx_cmd_topic, self.tx_cmd_callback, 10)
 
         # Serial setup
-        self.ser = serial.Serial(self.serial_port, self.serial_baudrate, timeout=1)
+        self.ser = serial.Serial(self.serial_port, self.baud_rate, timeout=1)
         self.ser.flush()
 
         # Timer (10Hz)
@@ -346,7 +343,7 @@ class UnicoreDriver(Node):
                 self.fix_msg.header.stamp = Time(sec=data['utc_time'][0], nanosec=data['utc_time'][1])
 
             else:
-                self.fix_msg.header.stamp = self.time_io
+                self.fix_msg.header.stamp = self.time_io.to_msg()
             self.fix_msg.header.frame_id = self.gps_frame_id
 
             ### get fix
@@ -401,7 +398,7 @@ class UnicoreDriver(Node):
             if self.use_gnss_time:
                 time_ref_msg.header.stamp = Time(sec=data['utc_time'][0], nanosec=data['utc_time'][1])
             else:
-                time_ref_msg.header.stamp = self.time_io            
+                time_ref_msg.header.stamp = self.time_io.to_msg()            
             time_ref_msg.header.frame_id = self.gps_frame_id
             time_ref_msg.source = self.gps_frame_id
             time_ref_msg.time_ref = time_ref_msg.header.stamp
@@ -413,7 +410,7 @@ class UnicoreDriver(Node):
                 if self.use_gnss_time:
                     self.vel_msg.header.stamp = Time(sec=data['utc_time'][0], nanosec=data['utc_time'][1])
                 else:
-                    self.vel_msg.header.stamp = self.time_io            
+                    self.vel_msg.header.stamp = self.time_io.to_msg()            
                 self.vel_msg.header.frame_id = "world"
                 ### assign vel msg: data
                 self.vel_msg.twist.linear.x = data['speed'] * math.sin(data['true_course'])
@@ -458,7 +455,7 @@ class UnicoreDriver(Node):
                 
                 heading_msg.header.stamp = Time(sec=data['utc_time'][0], nanosec=data['utc_time'][1])
             else:
-                heading_msg.header.stamp = self.time_io            
+                heading_msg.header.stamp = self.time_io.to_msg()            
             heading_msg.header.frame_id = self.heading_frame_id
             ### assign heading msg: pose
             heading_msg.pose.pose.orientation = self.rpy_to_quaternion(
@@ -546,7 +543,7 @@ class UnicoreDriver(Node):
             #       (data['Pitch']*180/3.1415926, data['Heading']*180/3.1415926))
             
             heading_msg = Odometry()
-            heading_msg.header.stamp = self.time_io            
+            heading_msg.header.stamp = self.time_io.to_msg()            
             heading_msg.header.frame_id = self.heading_frame_id
             heading_msg.child_frame_id = self.gps_frame_id
                 ### assign heading msg: pose
@@ -577,7 +574,7 @@ class UnicoreDriver(Node):
             if self.use_gnss_time:
                 twist_msg.header.stamp = Time(sec=unix_secs, nanosec=0)
             else:
-                twist_msg.header.stamp = self.time_io      
+                twist_msg.header.stamp = self.time_io.to_msg()      
             twist_msg.header.frame_id = self.heading_frame_id
 
             ### assign the velocity and covariance
@@ -594,9 +591,9 @@ class UnicoreDriver(Node):
 
     def send_sentence(self, data):
 
-        if self.nmea_pub.get_num_connections() > 0:
+        if self.nmea_pub.get_subscription_count() > 0:
             msg = Sentence()
-            msg.header.stamp = self.time_io
+            msg.header.stamp = self.time_io.to_msg()
             msg.header.frame_id = self.gps_frame_id
             msg.sentence = data
             self.nmea_pub.publish(msg)
@@ -646,14 +643,15 @@ class UnicoreDriver(Node):
             self.ser.close()
 
     def rpy_to_quaternion(self, r, p, y):
-        quaternion = tf.transformations.quaternion_from_euler(r, p, y)
-        return Quaternion(*quaternion)
+        q = tf_transformations.quaternion_from_euler(r, p, y)
+        return Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
     
 def main(args=None):
     rclpy.init(args=args)
 
+    node = UnicoreDriver()
+
     try:
-        node = UnicoreDriver()
         node.get_logger().info("Unicore Driver - Start node ...")
         rclpy.spin(node)
     except KeyboardInterrupt:

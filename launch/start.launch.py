@@ -14,7 +14,7 @@ def generate_launch_description():
     return LaunchDescription([
         Node(
             package='unicore_rtk_driver',
-            executable='unicore_rtk_driver_node.py',
+            executable='unicore_rtk_driver_node',
             name='unicore_rtk_driver',
             namespace=robot_name,
             output='screen',
