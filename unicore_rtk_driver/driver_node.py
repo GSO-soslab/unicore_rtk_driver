@@ -94,32 +94,32 @@ class UnicoreDriver(Node):
         self.debug = self.get_parameter('debug').get_parameter_value().bool_value
 
         ### NMEA 0183 msg
-        self.declare_parameter('hpr_heading_topic', 'unicore/hpr_heading')
+        self.declare_parameter('hpr_heading_topic', '~/hpr_heading')
         self.hpr_heading_topic = self.get_parameter('hpr_heading_topic').get_parameter_value().string_value
 
-        self.declare_parameter('fix_topic', 'unicore/fix')
+        self.declare_parameter('fix_topic', '~/fix')
         self.fix_topic = self.get_parameter('fix_topic').get_parameter_value().string_value
 
-        self.declare_parameter('time_ref_topic', 'unicore/time_ref')
+        self.declare_parameter('time_ref_topic', '~/time_ref')
         self.time_ref_topic = self.get_parameter('time_ref_topic').get_parameter_value().string_value
 
-        self.declare_parameter('nmea_topic', 'unicore/nmea')
+        self.declare_parameter('nmea_topic', '~/nmea')
         self.nmea_topic = self.get_parameter('nmea_topic').get_parameter_value().string_value
 
-        self.declare_parameter('global_vel_topic', 'unicore/global_velocity')
+        self.declare_parameter('global_vel_topic', '~/global_velocity')
         self.global_vel_topic = self.get_parameter('global_vel_topic').get_parameter_value().string_value
 
-        self.declare_parameter('simple_heading_topic', 'unicore/simple_heading')
+        self.declare_parameter('simple_heading_topic', '~/simple_heading')
         self.simple_heading_topic = self.get_parameter('simple_heading_topic').get_parameter_value().string_value
 
         ### Unicore msg
-        self.declare_parameter('unicore_heading_topic', 'unicore/heading_odometry')
+        self.declare_parameter('unicore_heading_topic', '~/heading_odometry')
         self.unicore_heading_topic = self.get_parameter('unicore_heading_topic').get_parameter_value().string_value
 
-        self.declare_parameter('unicore_velocity_topic', 'unicore/unicore_velocity')
+        self.declare_parameter('unicore_velocity_topic', '~/unicore_velocity')
         self.unicore_velocity_topic = self.get_parameter('unicore_velocity_topic').get_parameter_value().string_value
 
-        self.declare_parameter('tx_cmd_topic', 'unicore/tx_cmd')
+        self.declare_parameter('tx_cmd_topic', '~/tx_cmd')
         self.tx_cmd_topic = self.get_parameter('tx_cmd_topic').get_parameter_value().string_value
 
         self.declare_parameter('heading_frame_id', 'world_ned')
