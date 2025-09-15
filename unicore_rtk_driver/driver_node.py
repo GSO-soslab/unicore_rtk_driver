@@ -388,7 +388,7 @@ class UnicoreDriver(Node):
             if abs(data['utc_time'][0] - data['utc_time_pc'][0]) > 2.0:
                 self.get_logger().warn(
                     f"Unicore Driver - System may not time sync, UTC and System time are different: "
-                    f"UTC:{data['utc_time'][0]}, System:{data['time_pc'][0]}"
+                    f"UTC:{data['utc_time'][0]}, System:{data['utc_time_pc'][0]}"
                 )
 
             
