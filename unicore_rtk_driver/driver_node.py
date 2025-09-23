@@ -1,5 +1,6 @@
 from enum import Enum
 import serial
+import socket 
 import math
 import rclpy
 from rclpy.node import Node
@@ -89,6 +90,12 @@ class UnicoreDriver(Node):
         self.declare_parameter('use_gnss_time', False)
         self.use_gnss_time = self.get_parameter('use_gnss_time').get_parameter_value().bool_value
 
+        # use UDP to send time info to gpsd
+        self.declare_parameter('use_gpsd_udp', False)
+        self.use_gpsd_udp = self.get_parameter('use_gpsd_udp').get_parameter_value().bool_value
+        self.declare_parameter('virtual_port', 5005)
+        self.virtual_port = self.get_parameter('virtual_port').get_parameter_value().integer_value
+
         # Declare and get parameters
         self.declare_parameter('debug', False)
         self.debug = self.get_parameter('debug').get_parameter_value().bool_value
@@ -173,6 +180,11 @@ class UnicoreDriver(Node):
         self.ser = serial.Serial(self.serial_port, self.baud_rate, timeout=1)
         self.ser.flush()
 
+        # setup UDP for gpsd time access
+        if self.use_gpsd_udp:
+            self.server_address = ("127.0.0.1", self.virtual_port)
+            self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)    
+
         # Timer (10Hz)
         self.timer = self.create_timer(0.1, self.process)  # 1.0 / 10.0
 
@@ -245,6 +257,7 @@ class UnicoreDriver(Node):
         if self.ser.in_waiting > 0:
             ### read one line
             data = self.ser.readline().decode('utf-8').strip()
+            # data = self.ser.readline().decode('utf-8', errors='ignore')
 
             ### get IO time for this sentence 
             self.time_io = self.get_clock().now()
@@ -320,9 +333,6 @@ class UnicoreDriver(Node):
                 f"Unicore Driver - Failed to parse NMEA sentence. Sentence was: {nmea_string}"
             )
             return False
-        
-        ### publish the NMEA
-        self.send_sentence(nmea_string)
 
         # DEBUG:
         self.get_logger().debug(f"Unicore Driver - NMEA: {nmea_string}")
@@ -334,14 +344,13 @@ class UnicoreDriver(Node):
 
             if math.isnan(data['utc_time'][0]):
                 self.get_logger().warn(
-                f"Unicore Driver - Time in the NMEA GGA sentence is NOT valid"
-                )   
+                    f"Unicore Driver - Time in the NMEA GGA sentence is NOT valid"
+                )
+                return False
             
             ### get timestamp
             if self.use_gnss_time:
-
                 self.fix_msg.header.stamp = Time(sec=data['utc_time'][0], nanosec=data['utc_time'][1])
-
             else:
                 self.fix_msg.header.stamp = self.time_io.to_msg()
             self.fix_msg.header.frame_id = self.gps_frame_id
@@ -523,9 +532,6 @@ class UnicoreDriver(Node):
                 "Unicore Driver - Failed to parse UNICORE sentence. Sentence was: {unicore_string}" )
             return False
         
-        ### publish the Unicore ASCII string
-        self.send_sentence(unicore_string)
-
         # DEBUG:
         self.get_logger().debug(f"Unicore Driver - UNICORE: {unicore_string}")
         self.get_logger().debug(str(parsed_sentence))
@@ -535,7 +541,7 @@ class UnicoreDriver(Node):
             data = parsed_sentence['UNIHEADINGA']
 
             ### check the vaild status
-            if data['Pose_Type'] == 0:
+            if data['Pose_Type'] == 0 and data['Sol_Stat'] !=0:
                 self.get_logger().warn("Unicore Driver - UNICORE UNIHEADINGA sentence is not vaild")
                 return 
 
@@ -591,6 +597,9 @@ class UnicoreDriver(Node):
 
     def send_sentence(self, data):
 
+        if "$GN" in data and self.use_gpsd_udp:
+            self.udp_socket.sendto(data.encode(), self.server_address)
+
         if self.nmea_pub.get_subscription_count() > 0:
             msg = Sentence()
             msg.header.stamp = self.time_io.to_msg()
@@ -603,8 +612,13 @@ class UnicoreDriver(Node):
         This function is used for receive the 'Data output Commands' and send back to GPS
 
         Format: "command rate"
-        Example: To publish [UNIHEADING] msg at 1 Hz and send "UNIHEADINGA COM3 1"
-        Example: To stop [UNIHEADING] msg at 1 Hz and send "UNLOG UNIHEADINGA"
+        Examples: 
+            To publish [UNIHEADING] msg at 5 Hz and send "UNIHEADINGA COM3 0.2"
+                $ ros2 topic pub /my_robot/unicore_rtk/tx_cmd std_msgs/msg/String "data: 'UNIHEADINGA COM3 0.2'" --once
+            To stop [UNIHEADING] msg at 5 Hz and send "UNLOG UNIHEADINGA" 
+                $ ros2 topic pub /my_robot/unicore_rtk/tx_cmd std_msgs/msg/String "data: 'UNLOG UNIHEADINGA'" --once
+            To stop [GNHPR] msg at 1 Hz and send "UNLOG GPHPR" 
+                $ ros2 topic pub /my_robot/unicore_rtk/tx_cmd std_msgs/msg/String "data: 'UNLOG GPHPR'" --once
         """
 
         self.get_logger().info(f"Unicore Driver - Received msg: {data.data}")
@@ -627,6 +641,9 @@ class UnicoreDriver(Node):
         if(data_string is False):
             return False
 
+        ### publish the NMEA: unicore didn't have '\r\n' at the end
+        self.send_sentence(data_string + "\r\n")
+
         ### check integrity
         data_type = self.check_integrity(data_string)
 
@@ -637,10 +654,14 @@ class UnicoreDriver(Node):
         else:
             self.get_logger().warn("Unicore Driver - not recognised sentence!")
 
-
     def close(self):
+        # close gps serial port
         if self.ser.is_open:
             self.ser.close()
+
+        # close UDP port
+        if self.use_gpsd_udp:
+            self.udp_socket.close()
 
     def rpy_to_quaternion(self, r, p, y):
         q = tf_transformations.quaternion_from_euler(r, p, y)
