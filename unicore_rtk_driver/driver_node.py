@@ -101,8 +101,8 @@ class UnicoreDriver(Node):
         self.debug = self.get_parameter('debug').get_parameter_value().bool_value
 
         ### NMEA 0183 msg
-        self.declare_parameter('hpr_heading_topic', '~/hpr_heading')
-        self.hpr_heading_topic = self.get_parameter('hpr_heading_topic').get_parameter_value().string_value
+        self.declare_parameter('heading_enu_pose_topic', '~/heading_enu_pose')
+        self.heading_enu_pose_topic = self.get_parameter('heading_enu_pose_topic').get_parameter_value().string_value
 
         self.declare_parameter('fix_topic', '~/fix')
         self.fix_topic = self.get_parameter('fix_topic').get_parameter_value().string_value
@@ -135,6 +135,9 @@ class UnicoreDriver(Node):
         self.declare_parameter('gps_frame_id', 'unicore_gps')
         self.gps_frame_id = self.get_parameter('gps_frame_id').get_parameter_value().string_value
 
+        self.declare_parameter('heading_enu_frame_id', 'unicore_gps')
+        self.heading_enu_frame_id = self.get_parameter('heading_enu_frame_id').get_parameter_value().string_value
+
         ### epe = estimated position error
         self.declare_parameter('epe_quality0', 1000000.0)
         self.default_epe_quality0 = self.get_parameter('epe_quality0').get_parameter_value().double_value
@@ -163,12 +166,12 @@ class UnicoreDriver(Node):
             logger.setLevel(logging.INFO)
 
         # Publishers
-        self.hpr_heading_pub = self.create_publisher(PoseWithCovarianceStamped, self.hpr_heading_topic, 10)
         self.nmea_pub = self.create_publisher(Sentence, self.nmea_topic, 10)
         self.fix_pub = self.create_publisher(NavSatFix, self.fix_topic, 10)
         self.time_ref_pub = self.create_publisher(TimeReference, self.time_ref_topic, 10)
         self.global_vel_pub = self.create_publisher(TwistStamped, self.global_vel_topic, 10)
         self.simple_heading_pub = self.create_publisher(Float32, self.simple_heading_topic, 10)
+        self.heading_enu_pose_pub = self.create_publisher(PoseWithCovarianceStamped, self.heading_enu_pose_topic, 10)
 
         self.unicore_heading_pub = self.create_publisher(Odometry, self.unicore_heading_topic, 10)
         self.unicore_velocity_pub = self.create_publisher(TwistWithCovarianceStamped, self.unicore_velocity_topic, 10)
@@ -456,26 +459,6 @@ class UnicoreDriver(Node):
             if data['fix_type'] == 0:
                 self.get_logger().warn("Unicore Driver - NMEA HPR sentence is NOT valid")
                 return False                
-            
-            heading_msg = PoseWithCovarianceStamped()
-
-            ### assign heading msg: header
-            if self.use_gnss_time:
-                
-                heading_msg.header.stamp = Time(sec=data['utc_time'][0], nanosec=data['utc_time'][1])
-            else:
-                heading_msg.header.stamp = self.time_io.to_msg()            
-            heading_msg.header.frame_id = self.heading_frame_id
-            ### assign heading msg: pose
-            heading_msg.pose.pose.orientation = self.rpy_to_quaternion(
-                0,0, data['heading'] * math.pi / 180.0)
-            ### assign heading for simple test
-            simple_heading_msg = Float32()
-            simple_heading_msg.data = data['heading']
-            
-            ### publish heading
-            self.hpr_heading_pub.publish(heading_msg)
-            self.simple_heading_pub.publish(simple_heading_msg)
 
     def calculate_crc32(self, sz_buf: str) -> int:
         crc = 0
@@ -548,19 +531,52 @@ class UnicoreDriver(Node):
             # print("Unicore msg - UNIHEADINGA: picth=%f, heading:%f" % 
             #       (data['Pitch']*180/3.1415926, data['Heading']*180/3.1415926))
             
+            # =============================================================== #
+            # Publish the heading as odometry msg in NED
+            # =============================================================== #
             heading_msg = Odometry()
             heading_msg.header.stamp = self.time_io.to_msg()            
             heading_msg.header.frame_id = self.heading_frame_id
             heading_msg.child_frame_id = self.gps_frame_id
-                ### assign heading msg: pose
+            ### assign heading msg: pose
             heading_msg.pose.pose.orientation = self.rpy_to_quaternion(
-                0, data['Pitch'], data['Heading'])
-            heading_msg.pose.covariance[28] = data['Pitch_Std'] ** 2 
+                0, 0, data['Heading'])
             heading_msg.pose.covariance[35] = data['Heading_Std'] ** 2             
 
             ### publish heading
             self.unicore_heading_pub.publish(heading_msg)
-        
+
+            # =============================================================== #
+            # Publish the heading as Pose msg in ENU
+            # =============================================================== #
+
+            ### convert the heading
+            heading_enu = data['Heading'] - 90.0
+            if heading_enu < 0.0:
+                heading_enu = 270.0 - heading_enu
+
+            ### publish the heading
+            heading_enu_pose_msg = PoseWithCovarianceStamped()
+            # FIXME: this heading msg not include the time
+            heading_enu_pose_msg.header.stamp = self.time_io.to_msg()       
+            heading_enu_pose_msg.header.frame_id = self.heading_enu_frame_id
+            heading_enu_pose_msg.pose.pose.orientation = self.rpy_to_quaternion(
+                0, 0, heading_enu)
+            heading_enu_pose_msg.pose.covariance[35] = data['Heading_Std'] ** 2     
+            self.heading_enu_pose_pub.publish(heading_enu_pose_msg)
+
+
+            # =============================================================== #
+            # Publish the heading as float msg in NED
+            # =============================================================== #
+
+            ### assign heading for simple test
+            simple_heading_msg = Float32()
+            simple_heading_msg.data = data['heading']
+            
+            ### publish heading
+            self.simple_heading_pub.publish(simple_heading_msg)
+
         if 'HEAD' in parsed_sentence and 'AGRICA' in parsed_sentence:
             data = parsed_sentence['AGRICA']        
  
