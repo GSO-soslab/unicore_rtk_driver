@@ -551,10 +551,10 @@ class UnicoreDriver(Node):
             # =============================================================== #
 
             ### convert the heading
-            heading_enu = data['Heading'] - 90.0
-            if heading_enu < 0.0:
-                heading_enu = 270.0 - heading_enu
-
+            # heading_enu = data['Heading'] - 90.0
+            # if heading_enu < 0.0:
+                # heading_enu = 270.0 - heading_enu
+            heading_enu = -(data['Heading']-math.pi/2)
             ### publish the heading
             heading_enu_pose_msg = PoseWithCovarianceStamped()
             # FIXME: this heading msg not include the time
@@ -572,7 +572,7 @@ class UnicoreDriver(Node):
 
             ### assign heading for simple test
             simple_heading_msg = Float32()
-            simple_heading_msg.data = data['heading']
+            simple_heading_msg.data = data['Heading']
             
             ### publish heading
             self.simple_heading_pub.publish(simple_heading_msg)
