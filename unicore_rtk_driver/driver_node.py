@@ -259,7 +259,11 @@ class UnicoreDriver(Node):
 
         if self.ser.in_waiting > 0:
             ### read one line
-            data = self.ser.readline().decode('utf-8').strip()
+            try:
+                data = self.ser.readline().decode('utf-8').strip()
+            except Exception as e:
+                print("Unicore NMEA could not deode!", flush=True)
+                return False
             # data = self.ser.readline().decode('utf-8', errors='ignore')
 
             ### get IO time for this sentence 
