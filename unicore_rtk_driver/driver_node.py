@@ -10,7 +10,8 @@ from nmea_msgs.msg import Sentence
 from std_msgs.msg import Float32, String
 from nav_msgs.msg import Odometry
 import tf_transformations
-from tf2_ros import TransformBroadcaster
+from tf2_ros import TransformBroadcaster, Buffer, TransformListener
+import tf2_geometry_msgs
 import logging
 from unicore_rtk_driver import nmea_parser
 from unicore_rtk_driver import unicore_parser
@@ -172,6 +173,7 @@ class UnicoreDriver(Node):
         self.global_vel_pub = self.create_publisher(TwistStamped, self.global_vel_topic, 10)
         self.simple_heading_pub = self.create_publisher(Float32, self.simple_heading_topic, 10)
         self.heading_enu_pose_pub = self.create_publisher(PoseWithCovarianceStamped, self.heading_enu_pose_topic, 10)
+        self.heading_enu_pose_corrected_pub = self.create_publisher(PoseWithCovarianceStamped, self.heading_enu_pose_topic+'/tf_corrected', 10)
 
         self.unicore_heading_pub = self.create_publisher(Odometry, self.unicore_heading_topic, 10)
         self.unicore_velocity_pub = self.create_publisher(TwistWithCovarianceStamped, self.unicore_velocity_topic, 10)
@@ -193,6 +195,10 @@ class UnicoreDriver(Node):
 
         # TF Broadcaster
         self.tf_br = TransformBroadcaster(self)
+
+        # TF Buffer and Listener
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
 
     def init(self):
 
@@ -563,13 +569,21 @@ class UnicoreDriver(Node):
             heading_enu_pose_msg = PoseWithCovarianceStamped()
             # FIXME: this heading msg not include the time
             heading_enu_pose_msg.header.stamp = self.time_io.to_msg()       
-            heading_enu_pose_msg.header.frame_id = self.heading_enu_frame_id
+            heading_enu_pose_msg.header.frame_id = self.gps_frame_id
             heading_enu_pose_msg.pose.pose.orientation = self.rpy_to_quaternion(
                 0, 0, heading_enu)
             heading_enu_pose_msg.pose.covariance[35] = data['Heading_Std'] ** 2     
             self.heading_enu_pose_pub.publish(heading_enu_pose_msg)
 
-
+            # From gps_frame to desired frame
+            gps_to_desired_frame_transform = self.tf_buffer.lookup_transform(
+                    self.heading_enu_frame_id,
+                    heading_enu_pose_msg.header.frame_id,
+                    heading_enu_pose_msg.header.stamp)
+            
+            heading_enu_pose_corrected_msg = tf2_geometry_msgs.do_transform_pose_with_covariance_stamped(heading_enu_pose_msg, gps_to_desired_frame_transform)
+            self.heading_enu_pose_corrected_pub.publish(heading_enu_pose_corrected_msg)
+            
             # =============================================================== #
             # Publish the heading as float msg in NED
             # =============================================================== #
