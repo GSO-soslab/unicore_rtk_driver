@@ -130,14 +130,18 @@ class UnicoreDriver(Node):
         self.declare_parameter('tx_cmd_topic', '~/tx_cmd')
         self.tx_cmd_topic = self.get_parameter('tx_cmd_topic').get_parameter_value().string_value
 
+        ### Frames
         self.declare_parameter('heading_frame_id', 'world_ned')
         self.heading_frame_id = self.get_parameter('heading_frame_id').get_parameter_value().string_value
 
         self.declare_parameter('gps_frame_id', 'unicore_gps')
         self.gps_frame_id = self.get_parameter('gps_frame_id').get_parameter_value().string_value
 
-        self.declare_parameter('heading_enu_frame_id', 'unicore_gps')
+        self.declare_parameter('heading_enu_frame_id', 'world_enu')
         self.heading_enu_frame_id = self.get_parameter('heading_enu_frame_id').get_parameter_value().string_value
+
+        self.declare_parameter('desired_frame_id', 'imu')
+        self.desired_frame_id = self.get_parameter('desired_frame_id').get_parameter_value().string_value
 
         ### epe = estimated position error
         self.declare_parameter('epe_quality0', 1000000.0)
@@ -569,7 +573,7 @@ class UnicoreDriver(Node):
             heading_enu_pose_msg = PoseWithCovarianceStamped()
             # FIXME: this heading msg not include the time
             heading_enu_pose_msg.header.stamp = self.time_io.to_msg()       
-            heading_enu_pose_msg.header.frame_id = self.gps_frame_id
+            heading_enu_pose_msg.header.frame_id = self.heading_enu_frame_id
             heading_enu_pose_msg.pose.pose.orientation = self.rpy_to_quaternion(
                 0, 0, heading_enu)
             heading_enu_pose_msg.pose.covariance[35] = data['Heading_Std'] ** 2     
@@ -577,7 +581,7 @@ class UnicoreDriver(Node):
 
             # From gps_frame to desired frame
             gps_to_desired_frame_transform = self.tf_buffer.lookup_transform(
-                    self.heading_enu_frame_id,
+                    self.desired_frame_id,
                     heading_enu_pose_msg.header.frame_id,
                     heading_enu_pose_msg.header.stamp)
             
