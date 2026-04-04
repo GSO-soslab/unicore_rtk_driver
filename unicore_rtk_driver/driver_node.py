@@ -437,7 +437,7 @@ class UnicoreDriver(Node):
                     self.vel_msg.header.stamp = Time(sec=data['utc_time'][0], nanosec=data['utc_time'][1])
                 else:
                     self.vel_msg.header.stamp = self.time_io.to_msg()            
-                self.vel_msg.header.frame_id = "world"
+                self.vel_msg.header.frame_id = self.heading_frame_id
                 ### assign vel msg: data
                 self.vel_msg.twist.linear.x = data['speed'] * math.sin(data['true_course'])
                 self.vel_msg.twist.linear.y = data['speed'] * math.cos(data['true_course'])
