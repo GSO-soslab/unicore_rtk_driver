@@ -134,6 +134,9 @@ class UnicoreDriver(Node):
 
         self.declare_parameter('imu_topic', 'imu/data')
         self.imu_topic = self.get_parameter('imu_topic').get_parameter_value().string_value
+
+        self.declare_parameter('heading_correction_angle_gps_to_imu', -3.0) #radians
+        self.heading_correction_angle_gps_to_imu = self.get_parameter('heading_correction_angle_gps_to_imu').get_parameter_value().double_value
         
         ### Frames
         self.declare_parameter('heading_frame_id', 'world_ned')
@@ -597,7 +600,7 @@ class UnicoreDriver(Node):
                     imu_pose_msg.header.stamp = self.time_io.to_msg()
                     imu_pose_msg.header.frame_id = self.imu_frame
 
-                    heading_correction_factor = math.radians(-3.0) # -3.0 degrees = -0.05235987755982989 rad
+                    heading_correction_factor = math.radians(self.heading_correction_angle_gps_to_imu) # -3.0 degrees = -0.05235987755982989 rad
                     heading_imu_enu = heading_enu + heading_correction_factor
 
                     imu_pose_msg.pose.pose.orientation = self.rpy_to_quaternion(0, 0, heading_imu_enu)
