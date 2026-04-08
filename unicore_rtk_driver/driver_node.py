@@ -2,7 +2,6 @@ from enum import Enum
 import serial
 import socket 
 import math
-from fls_pcl.fls_pcl.test_rotation import R_IMU_GPS
 import rclpy
 from rclpy.node import Node
 from rclpy.time import Time as RclpyTime
@@ -631,7 +630,7 @@ class UnicoreDriver(Node):
                     # R_{GPS}^{WORLD} = R_{IMU}^{WORLD} @ R_{GPS}^{IMU}
                     R_GPS_WORLD =  R_IMU_WORLD @ R_GPS_IMU
 
-                    # Extract roll and pitch from R_IMU_GPS
+                    # Extract roll and pitch from R_GPS_WORLD
                     roll, pitch, _ = tf_transformations.euler_from_matrix(R_GPS_WORLD)
 
                     # Combine roll and pitch with heading_enu to get corrected IMU rotation in GPS frame
