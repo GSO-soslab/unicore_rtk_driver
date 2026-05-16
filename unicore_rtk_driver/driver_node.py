@@ -4,13 +4,15 @@ import socket
 import math
 import rclpy
 from rclpy.node import Node
+from rclpy.time import Time as RclpyTime
 from geometry_msgs.msg import Quaternion, PoseWithCovarianceStamped, TwistStamped, TwistWithCovarianceStamped
-from sensor_msgs.msg import NavSatFix, NavSatStatus, TimeReference
+from sensor_msgs.msg import NavSatFix, NavSatStatus, TimeReference, Imu
 from nmea_msgs.msg import Sentence
 from std_msgs.msg import Float32, String
 from nav_msgs.msg import Odometry
 import tf_transformations
-from tf2_ros import TransformBroadcaster
+from tf2_ros import TransformBroadcaster, Buffer, TransformListener
+import tf2_geometry_msgs
 import logging
 from unicore_rtk_driver import nmea_parser
 from unicore_rtk_driver import unicore_parser
@@ -129,14 +131,22 @@ class UnicoreDriver(Node):
         self.declare_parameter('tx_cmd_topic', '~/tx_cmd')
         self.tx_cmd_topic = self.get_parameter('tx_cmd_topic').get_parameter_value().string_value
 
+        self.declare_parameter('imu_topic', 'imu/data')
+        self.imu_topic = self.get_parameter('imu_topic').get_parameter_value().string_value
+
+        self.declare_parameter('heading_correction_angle_gps_to_imu', -3.0) #radians
+        self.heading_correction_angle_gps_to_imu = self.get_parameter('heading_correction_angle_gps_to_imu').get_parameter_value().double_value
+        
+        ### Frames
         self.declare_parameter('heading_frame_id', 'world_ned')
         self.heading_frame_id = self.get_parameter('heading_frame_id').get_parameter_value().string_value
 
         self.declare_parameter('gps_frame_id', 'unicore_gps')
         self.gps_frame_id = self.get_parameter('gps_frame_id').get_parameter_value().string_value
 
-        self.declare_parameter('heading_enu_frame_id', 'unicore_gps')
+        self.declare_parameter('heading_enu_frame_id', 'world_enu')
         self.heading_enu_frame_id = self.get_parameter('heading_enu_frame_id').get_parameter_value().string_value
+
 
         ### epe = estimated position error
         self.declare_parameter('epe_quality0', 1000000.0)
@@ -172,12 +182,15 @@ class UnicoreDriver(Node):
         self.global_vel_pub = self.create_publisher(TwistStamped, self.global_vel_topic, 10)
         self.simple_heading_pub = self.create_publisher(Float32, self.simple_heading_topic, 10)
         self.heading_enu_pose_pub = self.create_publisher(PoseWithCovarianceStamped, self.heading_enu_pose_topic, 10)
+        self.heading_enu_pose_imu_pub = self.create_publisher(PoseWithCovarianceStamped, self.heading_enu_pose_topic+'/imu', 10)
+        self.heading_enu_pose_manual_imu_pub = self.create_publisher(PoseWithCovarianceStamped, self.heading_enu_pose_topic+'/imu/manual', 10)
 
         self.unicore_heading_pub = self.create_publisher(Odometry, self.unicore_heading_topic, 10)
         self.unicore_velocity_pub = self.create_publisher(TwistWithCovarianceStamped, self.unicore_velocity_topic, 10)
 
-        # Subscriber
+        # Subscribers
         self.tx_cmd_sub = self.create_subscription(String, self.tx_cmd_topic, self.tx_cmd_callback, 10)
+        self.imu_sub = self.create_subscription(Imu, self.imu_topic, self.imu_callback, 10)
 
         # Serial setup
         self.ser = serial.Serial(self.serial_port, self.baud_rate, timeout=1)
@@ -194,7 +207,15 @@ class UnicoreDriver(Node):
         # TF Broadcaster
         self.tf_br = TransformBroadcaster(self)
 
+        # TF Buffer and Listener
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
     def init(self):
+
+        self.imu_rotation = None
+        self.imu_frame = None
+        self.imu_flag = None
 
         self.hdop = float("nan")
 
@@ -427,7 +448,7 @@ class UnicoreDriver(Node):
                     self.vel_msg.header.stamp = Time(sec=data['utc_time'][0], nanosec=data['utc_time'][1])
                 else:
                     self.vel_msg.header.stamp = self.time_io.to_msg()            
-                self.vel_msg.header.frame_id = "world"
+                self.vel_msg.header.frame_id = self.heading_frame_id
                 ### assign vel msg: data
                 self.vel_msg.twist.linear.x = data['speed'] * math.sin(data['true_course'])
                 self.vel_msg.twist.linear.y = data['speed'] * math.cos(data['true_course'])
@@ -569,6 +590,77 @@ class UnicoreDriver(Node):
             heading_enu_pose_msg.pose.covariance[35] = data['Heading_Std'] ** 2     
             self.heading_enu_pose_pub.publish(heading_enu_pose_msg)
 
+            ###  Convert Heading to IMU frame
+            ### Heading is influenced by Roll & Pitch, therefore constrain it by using IMU's Roll and Pitch
+            if self.imu_flag:
+                try:
+                    ### Manually correct Heading of GPS in world to get heading of IMU in world
+                    imu_pose_msg = PoseWithCovarianceStamped()
+                    imu_pose_msg.header.stamp = self.time_io.to_msg()
+                    imu_pose_msg.header.frame_id = self.imu_frame
+
+                    heading_correction_factor = math.radians(self.heading_correction_angle_gps_to_imu) # -3.0 degrees = -0.05235987755982989 rad
+                    heading_imu_enu = heading_enu + heading_correction_factor
+
+                    imu_pose_msg.pose.pose.orientation = self.rpy_to_quaternion(0, 0, heading_imu_enu)
+                    imu_pose_msg.pose.covariance[35] = data['Heading_Std'] ** 2
+                    self.heading_enu_pose_manual_imu_pub.publish(imu_pose_msg)
+
+                    ### Correct using transformations
+                    q = [self.imu_rotation.x, 
+                         self.imu_rotation.y, 
+                         self.imu_rotation.z, 
+                         self.imu_rotation.w]
+                    
+                    ## R_{IMU}^{WORLD} 
+                    R_IMU_WORLD = tf_transformations.quaternion_matrix(q)
+
+                    ### Get transform from IMU to GPS frame.
+                    gps_imu_tf = self.tf_buffer.lookup_transform(
+                        self.imu_frame, self.gps_frame_id,  RclpyTime())
+                    
+                    # R_{GPS}^{IMU}
+                    R_GPS_IMU = tf_transformations.quaternion_matrix(
+                                [gps_imu_tf.transform.rotation.x, 
+                                 gps_imu_tf.transform.rotation.y, 
+                                 gps_imu_tf.transform.rotation.z, 
+                                 gps_imu_tf.transform.rotation.w])
+                    
+                    # Transform the IMU rotation to GPS frame
+                    # R_{GPS}^{WORLD} = R_{IMU}^{WORLD} @ R_{GPS}^{IMU}
+                    R_GPS_WORLD =  R_IMU_WORLD @ R_GPS_IMU
+
+                    # Extract roll and pitch from R_GPS_WORLD
+                    roll, pitch, _ = tf_transformations.euler_from_matrix(R_GPS_WORLD)
+
+                    # Combine roll and pitch with heading_enu to get corrected IMU rotation in GPS frame
+                    corrected_q = tf_transformations.quaternion_from_euler(roll, pitch, heading_enu)
+                    
+                    R_GPS_WORLD_CORRECTED = tf_transformations.quaternion_matrix(
+                        [corrected_q[0], corrected_q[1], corrected_q[2], corrected_q[3]])
+                    
+                    # R_{GPS}^{WORLD} @ R_{GPS}^{IMU}^T = R_{IMU}^{WORLD}
+                    # R_{GPS}^{IMU}^T = R_{IMU}^{GPS}
+                    R_IMU_WORLD = R_GPS_WORLD_CORRECTED @ R_GPS_IMU.T
+                    
+                    # Convert to quaternion for publishing
+                    R_IMU_WORLD_QUATERNION = tf_transformations.quaternion_from_matrix(R_IMU_WORLD)
+                    
+                    # Publish the corrected heading in IMU frame
+                    final_msg = PoseWithCovarianceStamped()
+                    final_msg.header.stamp = self.time_io.to_msg()
+                    final_msg.header.frame_id = self.imu_frame
+                    final_msg.pose.pose.orientation = Quaternion(
+                        x=R_IMU_WORLD_QUATERNION[0],
+                        y=R_IMU_WORLD_QUATERNION[1],
+                        z=R_IMU_WORLD_QUATERNION[2],
+                        w=R_IMU_WORLD_QUATERNION[3]
+                    )
+                    final_msg.pose.covariance[35] = data['Heading_Std'] ** 2
+                    self.heading_enu_pose_imu_pub.publish(final_msg)
+                except Exception as e:
+                    self.get_logger().warn(f"IMU-corrected heading TF failed: {e}")
+
 
             # =============================================================== #
             # Publish the heading as float msg in NED
@@ -626,6 +718,16 @@ class UnicoreDriver(Node):
             msg.header.frame_id = self.gps_frame_id
             msg.sentence = data
             self.nmea_pub.publish(msg)
+
+    def imu_callback(self, msg: Imu):
+        if not self.imu_flag:
+            # Get frame id 
+            self.imu_frame = msg.header.frame_id
+            self.imu_flag = True
+
+        # Store rotation.
+        self.imu_rotation = msg.orientation
+        self.imu_covariance = msg.orientation_covariance
 
     def tx_cmd_callback(self, data):
         """
