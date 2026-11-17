@@ -1,95 +1,312 @@
-# Unicore GPS ROS1 driver
+# unicore_rtk_driver
 
-This is ROS1 driver for [H-RTK Unicore UM982 module](https://holybro.com/products/h-rtk-unicore-um982?srsltid=AfmBOor9B8UnQe8gZG0i5H9SFrWDkjocAbjg1wBmmKDetLk7dQbwZMtK).
+## Introduction
+ROS 2 driver for Unicore UM98x GNSS receivers (UM982 dual antenna heading) and other receivers
+that output NMEA and RTCM 3. The driver publishes position, heading, velocity and GNSS time,
+and supports operation as an RTK rover or as an RTK base station.
 
-## TODO:
+- ROS 2 Jazzy
+- Ubuntu 24.04
+- Receivers in use: Holybro H-RTK UM982 (ALPHA RISE, WAM-V)
+- Other UM98x boards (for example MJRTK UM982) use the same `unicore` receiver type
+- Receivers configured with their own tools (for example SparkFun RTK Surveyor) use the `generic`
+  receiver type
 
-- check published outdoor
+RTCM corrections are exchanged over UDP, TCP, serial radio or NTRIP directly from the serial
+reader and network threads. They are not routed through ROS topics unless `rtcm.ros_topic` is set.
 
+## Directory structure
+- `unicore_rtk_driver/driver_node.py`: ROS node. Declares parameters, creates topics and services,
+  and connects the components below.
+- `unicore_rtk_driver/serial_link.py`: receiver serial port. Reader thread, automatic reconnect,
+  serialized writes.
+- `unicore_rtk_driver/processor.py`: converts validated NMEA and Unicore sentences into ROS messages.
+  Has no I/O and is used directly by the tests.
+- `unicore_rtk_driver/protocol/`: stream framing (NMEA, Unicore ASCII, RTCM 3), checksums
+  (NMEA XOR, Unicore CRC-32, RTCM CRC-24Q) and sentence parsers.
+- `unicore_rtk_driver/receivers/`: receiver specific configuration commands. `unicore.py` for UM98x,
+  `generic.py` for receivers that are configured externally.
+- `unicore_rtk_driver/rtcm/`: RTCM transports (`transport.py`), routing with per source framing and
+  failover (`router.py`), RTCM 3 helpers (`rtcm3.py`).
+- `unicore_rtk_driver/tools/probe.py`: command line tool that identifies what a receiver outputs.
+- `config/`: example parameter files.
+- `launch/start.launch.py`: launch file with `namespace`, `node_name` and `params_file` arguments.
+- `udev/`, `scripts/`: udev rule template and installer for stable device names.
+- `test/`: unit tests, regression test against recorded data, fixture extraction tool.
 
-- publish msg from UNIHEADINGA: ok
-        - heading and pitch with std
-- publish msg from AGRICA
-        - ENU velocity with STD
-        - rover station lat/lon/alt with std
-                - is this the primary antenna ?
-                - but no HDOP, what is the `proper way to calculate covariance of gps measurements`
-- publish the msg from GPS NMEA ?
-        - GGA: ok
-                - lat/lon/alt, with default std, `IO time is the actual IO time`, GPS time is the time from data['time'], 
-        - GST: ok
-                - `lat/lon/alt std`, use the std here
-        - RMC: ok
-                - time_ref:GNSS/data['time']
-                - velocity for test
-        - HPR: ok
-                - publish the HPR heading and simple heading, for test
+Data flow:
+```
+receiver -> SerialLink -> StreamFramer -+-> NMEA / Unicore -> GnssProcessor -> ROS topics
+                                        |                  \-> ~/nmea, gpsd (UDP)
+                                        +-> RTCM ------------> RtcmRouter -> RTCM outputs
 
-AGRICA: 450 characters + 2 more for '\r\n', total will be 452
-UNIHEADINGA: 143 characters + 2 more for '\r\n', total will be 145
+RTCM inputs (UDP, TCP, NTRIP, serial) -> RtcmRouter -> SerialLink (written to the receiver)
+```
 
-## Test:
-- check all the data paring is good
-- check if all the data vaild before publish
+## Installation
 
-## published message:
-- GPS fix:
-    - info: gps fix message
-    - type: sensor_msgs/NavSatFix
-    - topic: unicore/fix
-    - usage: subsribe by other node to generate gps odometry
+### Dependencies
+`nmea_msgs` and `rtcm_msgs` are the only dependencies that are not part of a default ROS 2
+installation. `rtcm_msgs` is only needed when `rtcm.ros_topic` is used.
+```bash
+cd ~/ros2_ws/src
+git clone -b jazzy-devel https://github.com/GSO-soslab/unicore_rtk_driver.git
+cd ~/ros2_ws
+rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -y
+```
 
-- Velocity:
-    - info: todo
-    - type: geometry_msgs/TwistStamped
-    - topic: unicore/global_velocity
-    - usage: todo      
+### Compile the code
+```bash
+colcon build --packages-select unicore_rtk_driver
+```
 
-- HPR Heading:
-    - info: the true north heading in the Pose
-    - type: geometry_msgs/PoseWithCovarianceStamped
-    - topic: unicore/hpr_heading
-    - usage: todo
+### Serial port access
+The user running the driver must be in the `dialout` group. The installer below adds the user to
+the group and creates a stable device name from the adapter serial number, or from the USB port
+when the adapter has no serial number (CH340 based boards such as the MJRTK UM982).
+```bash
+src/unicore_rtk_driver/scripts/install_udev_rules.sh --dry-run /dev/ttyUSB0 mjrtk_um982
+src/unicore_rtk_driver/scripts/install_udev_rules.sh /dev/ttyUSB0 mjrtk_um982
+```
+Log out and back in after the user is added to `dialout`. `udev/99-rtk-gnss.rules` contains
+commented examples for the Holybro, MJRTK and SparkFun units.
 
-- nmea message:
-    - info: GGA / RMC / GST / HDT / VTG
-    - type: nmea_msgs/Sentence 
-    - topic: unicore/nmea 
-    - usage: the raw data or feed to nmea_navsat_driver/nmea_topic_driver for gps fix update
+## Quick test
 
-- simple heading
-    - info: the true north heading in degree
-    - type: std_msgs/Float32
-    - topic: unicore/simple_heading
-    - usage: quick check the heading
+- Identify what the receiver outputs and at which baud rate. The tool only listens unless
+  `--query-version` is given, which sends the read only `VERSIONA` query.
+```bash
+ros2 run unicore_rtk_driver unicore_rtk_probe /dev/ttyUSB0
+ros2 run unicore_rtk_driver unicore_rtk_probe /dev/ttyUSB0 --query-version
+```
 
-- time reference:
-    - info: the GPS UTC time
-    - type: sensor_msgs/TimeReference
-    - topic: unicore/time_ref
-    - usgae: time sync
+- Start the driver as a rover with the default parameters.
+```bash
+ros2 launch unicore_rtk_driver start.launch.py namespace:=my_robot
+```
 
-- setup commands:
-    - info: the commands used to setup GPS
-    - type: std_msgs/String
-    - topic: unicore/tx_cmd
-    - usgae: To publish [UNIHEADING] msg at 1 Hz and send "UNIHEADINGA COM3 1"
+- Start the driver with a parameter file from `config/`.
+```bash
+ros2 launch unicore_rtk_driver start.launch.py params_file:=/path/to/params.yaml
+```
 
-- unicore heading odometry: 
-    - info: from UNIHEADINGA message, the true north heading, represent in Odometry
-    - type: nav_msgs/Odometry
-    - topic: unicore/heading_odom
-    - usage: feed to robot_localization for heading update
+| File | Purpose |
+|---|---|
+| `param.yaml` | Rover, receiver configuration left unchanged. Same behavior as previous versions. |
+| `rover_rtk.yaml` | UM982 rover. Enables the required outputs and reads corrections from a base over TCP. |
+| `base_um982.yaml` | UM982 base. Survey-in or fixed position, RTCM served over TCP and UDP. |
+| `base_generic.yaml` | Externally configured base (for example SparkFun RTK Surveyor). RTCM forwarded. |
 
-- unicore velocity:
-    - info: todo
-    - type: geometry_msgs/TwistWithCovarianceStamped
-    - topic: unicore/unicore_velocity
-    - usage: todo
+- Send a raw command to the receiver.
+```bash
+ros2 topic pub /my_robot/unicore_rtk_driver/tx_cmd std_msgs/msg/String "data: 'UNIHEADINGA COM3 0.2'" --once
+```
+
+- Resend the receiver configuration after changing parameters at runtime.
+```bash
+ros2 service call /my_robot/unicore_rtk_driver/configure_receiver std_srvs/srv/Trigger
+```
+
+## Receiver configuration
+With `configure_receiver: true` the driver sends the following commands every time the serial port
+is opened. Nothing is written to receiver flash unless `save_receiver_config: true`.
+
+1. Mode command. Rover: `rover.mode_command` (default `MODE ROVER`). Base: `base.mode_command` if
+   set, otherwise `MODE BASE TIME <base.survey_in_min_duration_s>` or
+   `MODE BASE <lat> <lon> <height>` when `base.use_fixed_position` is true.
+2. Base only: one `RTCM<number> [<receiver_port>] <period>` per entry of `base.rtcm_messages`.
+3. One `<LOG> [<receiver_port>] <period>` per entry of `receiver_logs`.
+4. Each entry of `receiver_commands`, verbatim.
+5. `saveconfig` if `save_receiver_config` is true.
+
+With `configure_receiver: false` (default) only `receiver_commands` are sent, which keeps receivers
+that were configured by hand unchanged. The `generic` receiver type never generates commands.
+
+## RTK base and rover
+```
+base computer                                         vehicle
+receiver -> driver (mode: base) -- tcpserver / udp --> driver (mode: rover) -> receiver
+                                -- serial radio ----->
+NTRIP caster ------------------------------------------> driver (mode: rover, ntrip://...)
+```
+
+- Base: RTCM frames read from the receiver are written to every entry of `rtcm.outputs`. The base
+  station position from RTCM 1005/1006 is logged and reported in `/diagnostics`.
+- Rover: data from each entry of `rtcm.inputs` is framed per source and only complete frames that
+  pass the CRC are written to the receiver. When several inputs are listed, the first listed input
+  that delivered a frame within `rtcm.failover_timeout_s` is used.
+- The measured latency from the base receiver port to the rover receiver port, both nodes on one
+  host over TCP loopback, is about 2.3 ms. This excludes radio and network transmission time.
+
+RTCM endpoints:
+
+| URI | Output (base) | Input (rover) |
+|---|---|---|
+| `udp://HOST:PORT` | One datagram per frame. Broadcast addresses are allowed. | Listen on `HOST:PORT`. `udp://:2101` listens on all interfaces. |
+| `tcpserver://BIND:PORT` | Rovers connect. A client that cannot keep up is disconnected. | A base connects to this port. |
+| `tcp://HOST:PORT` | Connect to a relay or rover. Reconnects automatically. | Connect to a base `tcpserver`. Reconnects automatically. |
+| `serial:///dev/ttyX?baud=57600` | Radio modem. | Radio modem. |
+| `ntrip://[USER:PASS@]HOST:PORT/MOUNT` | Not supported. | NTRIP v1/v2 caster. The latest GGA is sent periodically for VRS mountpoints. |
+
+Endpoint options are given as a query string, for example `tcp://192.168.1.10:2101?reconnect_s=0.5`.
+
+| Option | Default | Applies to | Description |
+|---|---|---|---|
+| `reconnect_s` | 2.0 | tcp, serial, ntrip | Wait between connection attempts |
+| `send_timeout_s` | 0.05 | tcp, tcpserver, serial outputs | Maximum time a send may block |
+| `baud` | 57600 | serial | Baud rate |
+| `gga_period_s` | 10 | ntrip | Period of the GGA sent to the caster |
+
+## Node: unicore_rtk_driver_node
+
+### Published topics
+Topic names are relative to the node and can be changed with the `*_topic` parameters.
+
+| Topic | Type | Source | Description |
+|---|---|---|---|
+| `~/fix` | `sensor_msgs/NavSatFix` | GGA, GST | Position. Published when GST arrives, using the most recent GGA. |
+| `~/heading_odometry` | `nav_msgs/Odometry` | UNIHEADINGA | True heading as yaw in `heading_frame_id` (NED), child frame `gps_frame_id`. |
+| `~/heading_enu_pose` | `geometry_msgs/PoseWithCovarianceStamped` | UNIHEADINGA | Heading counter clockwise from east, `frame_id` = `heading_enu_frame_id`. |
+| `~/heading_enu_pose/imu` | `geometry_msgs/PoseWithCovarianceStamped` | UNIHEADINGA, IMU, TF | IMU roll and pitch with GNSS heading, in the IMU frame. Requires `imu_topic`. |
+| `~/heading_enu_pose/imu/manual` | `geometry_msgs/PoseWithCovarianceStamped` | UNIHEADINGA | ENU heading plus `heading_correction_angle_gps_to_imu`, in the IMU frame. |
+| `~/simple_heading` | `std_msgs/Float32` | UNIHEADINGA | True heading in radians. |
+| `~/unicore_velocity` | `geometry_msgs/TwistWithCovarianceStamped` | AGRICA | East, north, up velocity with covariance, `frame_id` = `velocity_frame_id`. |
+| `~/global_velocity` | `geometry_msgs/TwistStamped` | RMC | East and north velocity from speed and course, `frame_id` = `velocity_frame_id`. |
+| `~/time_ref` | `sensor_msgs/TimeReference` | RMC | GNSS UTC time. |
+| `~/nmea` | `nmea_msgs/Sentence` | all lines | Raw receiver output. Published only when there is a subscriber. |
+| `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | | Serial link, fix status, RTCM rates and age, transport status, base position. |
+| `rtcm.ros_topic` | `rtcm_msgs/Message` | RTCM | Base mode only, when `rtcm.ros_topic` is set. |
+
+### Subscribed topics
+
+| Topic | Type | Description |
+|---|---|---|
+| `~/tx_cmd` | `std_msgs/String` | Raw command written to the receiver, followed by `saveconfig` when `save_config_after_tx_cmd` is true. |
+| `imu_topic` | `sensor_msgs/Imu` | IMU orientation used for `~/heading_enu_pose/imu*`. |
+| `rtcm.ros_topic` | `rtcm_msgs/Message` | Rover mode only, when `rtcm.ros_topic` is set. Lowest priority input. |
+
+### Services
+
+| Service | Type | Description |
+|---|---|---|
+| `~/configure_receiver` | `std_srvs/Trigger` | Send the receiver configuration built from the current parameter values, independent of `configure_receiver`. |
+
+### Parameters
+
+Serial port and output:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `device` | `/dev/ttyUSB0` | Receiver serial device |
+| `baudrate` | `115200` | Receiver baud rate |
+| `serial_reconnect_s` | `1.0` | Wait between attempts to open the serial port |
+| `use_gnss_time` | `false` | Stamp `fix`, `time_ref` and velocities with GNSS time instead of arrival time |
+| `use_gpsd_udp` | `false` | Forward NMEA lines to gpsd over UDP |
+| `gpsd_udp_host` | `127.0.0.1` | gpsd address |
+| `virtual_port` | `5005` | gpsd UDP port |
+| `gpsd_udp_patterns` | `['$GN']` | Lines containing any of these strings are forwarded to gpsd |
+| `debug` | `false` | Log every sentence at debug level |
+| `diagnostics_period` | `1.0` | Period of `/diagnostics` in seconds |
+
+Frames:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `gps_frame_id` | `unicore_gps` | Frame of the receiver. Used for `fix`, `time_ref`, `nmea` and as child frame of `heading_odometry`. |
+| `heading_frame_id` | `world_ned` | NED world frame of `heading_odometry` |
+| `heading_enu_frame_id` | `world_enu` | `frame_id` of `heading_enu_pose` |
+| `velocity_frame_id` | `world` | ENU frame of `unicore_velocity` and `global_velocity` |
+| `imu_topic` | `imu/data` | IMU used for the IMU frame heading outputs |
+| `heading_correction_angle_gps_to_imu` | `-3.0` | Fixed heading offset in degrees for `heading_enu_pose/imu/manual` |
+
+Receiver:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `mode` | `rover` | `rover` or `base` |
+| `receiver` | `unicore` | `unicore` or `generic` |
+| `receiver_port` | `''` | Receiver port named in output commands, for example `COM1`. Empty uses the port the command is received on. |
+| `configure_receiver` | `false` | Send the receiver configuration each time the port is opened |
+| `save_receiver_config` | `false` | Append `saveconfig` to the configuration |
+| `rover.mode_command` | `MODE ROVER` | Rover mode command, for example `MODE ROVER UAV`. Empty sends no mode command. |
+| `receiver_logs` | `['GPGGA:1', 'GPGST:1', 'GPRMC:1', 'GPHPR:1', 'UNIHEADINGA:0.5', 'AGRICA:1']` | Outputs to enable, `LOG:period_s` |
+| `receiver_commands` | `['']` | Additional raw commands sent after the configuration |
+| `save_config_after_tx_cmd` | `true` | Send `saveconfig` after each `~/tx_cmd` command |
+
+Base station:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `base.mode_command` | `''` | Base mode command sent verbatim. Empty generates it from the parameters below. |
+| `base.survey_in_min_duration_s` | `120` | Survey-in duration |
+| `base.survey_in_accuracy_m` | `2.0` | Survey-in accuracy target. Not used by UM98x, which uses a time based survey-in. |
+| `base.use_fixed_position` | `false` | Use the fixed position instead of survey-in |
+| `base.fixed_latitude_deg` | `0.0` | Fixed base latitude |
+| `base.fixed_longitude_deg` | `0.0` | Fixed base longitude |
+| `base.fixed_altitude_m` | `0.0` | Fixed base height, in the reference expected by the receiver |
+| `base.rtcm_messages` | `['1006:10', '1033:10', '1074:1', '1084:1', '1094:1', '1124:1']` | RTCM messages to enable, `number:period_s` |
+
+RTCM:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `rtcm.outputs` | `['']` | RTCM outputs, see RTCM endpoints |
+| `rtcm.inputs` | `['']` | RTCM inputs in priority order, see RTCM endpoints |
+| `rtcm.ros_topic` | `''` | Optional `rtcm_msgs/Message` topic |
+| `rtcm.failover_timeout_s` | `5.0` | Time without frames after which the next input is used |
+| `rtcm.correction_timeout_s` | `5.0` | Correction age at which `/diagnostics` reports a warning |
+
+Validation and covariance. The defaults reproduce the output of previous versions.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `fix_covariance_mode` | `hdop_scaled` | `hdop_scaled`: variance = (HDOP x GST std)^2, height uses 2 x HDOP. `gst`: variance = GST std^2. |
+| `strict_validation` | `false` | Reject UNIHEADINGA without a solution or with a bad solution status, and publish `fix` only after a new valid GGA |
+| `heading_use_gnss_time` | `false` | Stamp heading outputs with the GPS time in the UNIHEADINGA header |
+| `epe_quality0` ... `epe_quality9` | | Default position error per GGA fix quality, kept for compatibility |
+
+Topic name parameters: `fix_topic`, `heading_enu_pose_topic`, `time_ref_topic`, `nmea_topic`,
+`global_vel_topic`, `simple_heading_topic`, `unicore_heading_topic`, `unicore_velocity_topic`,
+`tx_cmd_topic`.
+
+## Frame conventions
+The conventions below match how `alpha_rise_auv` and `wamv_rise` use the driver.
+
+- `<robot>/world` is ENU. `<robot>/world_ned` is a static transform of it (yaw pi/2, roll pi).
+- `heading_odometry`: true heading (clockwise from north) as yaw about the NED down axis,
+  `frame_id` = `heading_frame_id`, `child_frame_id` = `gps_frame_id`. Fused by `robot_localization`
+  (yaw only) with `pose_use_child_frame`.
+- `heading_enu_pose*`: heading counter clockwise from east. `frame_id` identifies the sensor the
+  heading belongs to. The vehicles set `heading_enu_frame_id` to the GNSS frame. The `/imu` outputs
+  use the IMU frame because the heading is already rotated into it (MicroStrain `ext/heading_enu`).
+- `fix`: `frame_id` = `gps_frame_id`, used by `world_odom_transform` as child frame of
+  `gps/odometry`. Altitude is height above the WGS84 ellipsoid (GGA altitude plus geoid separation).
+  The covariance is compared against `acceptable_var` by `world_odom_transform`.
+- `unicore_velocity`, `global_velocity`: east, north, up in `velocity_frame_id`. Set it to
+  `<robot>/world` on a namespaced robot.
+
+## Testing
+```bash
+colcon test --packages-select unicore_rtk_driver
+colcon test-result --verbose
+```
+`test/test_golden_regression.py` replays 60 s of receiver output recorded on ALPHA RISE
+(2025-11-20) and compares the result with the messages published by the previous driver version in
+the same recording. New fixtures can be created from any bag that contains `~/nmea` with
+`test/tools/extract_golden.py`.
+
+## Known limitations
+The following have not been verified on hardware yet:
+- UM982 base commands: `MODE BASE TIME`, `MODE BASE <lat> <lon> <height>` (height reference to be
+  confirmed for the firmware in use) and `RTCM<number> [port] <period>`.
+- RTCM input on the same UM982 port that is used for the host connection.
+- SparkFun RTK Surveyor as base or rover with `receiver: generic`.
 
 ## Acknowledgment
+The NMEA parser is derived from [nmea_navsat_driver](https://github.com/ros-drivers/nmea_navsat_driver) (BSD license).
 
-https://github.com/ros-drivers/nmea_navsat_driver
+## Message reference
+
 
 <details>
 

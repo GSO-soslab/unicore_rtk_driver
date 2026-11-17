@@ -1,0 +1,31 @@
+# UM982 as an RTK base station.
+#   ros2 launch unicore_rtk_driver start.launch.py params_file:=<this file>
+/**:
+  ros__parameters:
+    device: /dev/unicore_gps
+    baudrate: 115200
+    gps_frame_id: unicore_gps
+
+    mode: base
+    receiver: unicore
+    configure_receiver: True      # send MODE BASE ... and RTCM output commands on connect
+    save_receiver_config: False   # True: also persist them (writes receiver flash)
+
+    base:
+      # survey-in (default) ...
+      survey_in_min_duration_s: 120
+      # ... or a surveyed position
+      use_fixed_position: False
+      fixed_latitude_deg: 0.0
+      fixed_longitude_deg: 0.0
+      fixed_altitude_m: 0.0
+      # RTCM messages the receiver should output, "number:period_s"
+      rtcm_messages: ['1006:10', '1033:10', '1074:1', '1084:1', '1094:1', '1124:1']
+
+    # Where corrections go (any number of outputs):
+    #   tcpserver://0.0.0.0:2101          rovers connect here
+    #   udp://192.168.1.255:2101          broadcast on the local network
+    #   tcp://relay.example.org:2101      push to a relay
+    #   serial:///dev/ttyUSB1?baud=57600  radio modem
+    rtcm:
+      outputs: ['tcpserver://0.0.0.0:2101', 'udp://192.168.1.255:2101']
