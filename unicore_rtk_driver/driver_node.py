@@ -18,6 +18,7 @@ import socket
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
+from gps_msgs.msg import GPSFix
 from geometry_msgs.msg import PoseWithCovarianceStamped, TwistStamped, TwistWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from nmea_msgs.msg import Sentence
@@ -28,7 +29,7 @@ from std_msgs.msg import Float32, String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformListener
 
-from unicore_rtk_driver.processor import Config, GnssProcessor
+from unicore_rtk_driver.processor import GGA_SOLUTION_NAMES, Config, GnssProcessor
 from unicore_rtk_driver.protocol.framer import FrameType, StreamFramer
 from unicore_rtk_driver.receivers import (BaseStationSettings, OperatingMode, RoverSettings,
                                           create_receiver, parse_log_list,
@@ -103,6 +104,7 @@ class UnicoreDriver(Node):
         d('debug', False)
         d('heading_enu_pose_topic', '~/heading_enu_pose')
         d('fix_topic', '~/fix')
+        d('gpsfix_topic', '~/gpsfix')
         d('time_ref_topic', '~/time_ref')
         d('nmea_topic', '~/nmea')
         d('global_vel_topic', '~/global_velocity')
@@ -182,6 +184,7 @@ class UnicoreDriver(Node):
         enu = self.p('heading_enu_pose_topic')
         spec = {
             'fix': (NavSatFix, self.p('fix_topic')),
+            'gpsfix': (GPSFix, self.p('gpsfix_topic')),
             'time_ref': (TimeReference, self.p('time_ref_topic')),
             'global_velocity': (TwistStamped, self.p('global_vel_topic')),
             'simple_heading': (Float32, self.p('simple_heading_topic')),
@@ -325,6 +328,8 @@ class UnicoreDriver(Node):
             ('serial connected', str(self.link.is_open)),
             ('serial bytes read', str(self.link.bytes_read)),
             ('fix status', str(fix.status.status)),
+            ('solution', GGA_SOLUTION_NAMES.get(self.processor.gga_quality, 'unknown')),
+            ('satellites used', str(self.processor.num_satellites)),
             ('hdop', f'{self.processor.hdop:.2f}'),
             ('rtcm out bytes/s', f'{out.rate_bps:.0f}'),
             ('rtcm out messages', ' '.join(f'{k}:{v}' for k, v in sorted(out.message_counts.items()))),

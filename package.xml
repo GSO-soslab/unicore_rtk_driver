@@ -7,6 +7,8 @@
   <maintainer email="mzhou@uri.edu">mingxi</maintainer>
   <license>Apache-2.0</license>
 
+  <buildtool_depend>python3-setuptools</buildtool_depend>
+
   <exec_depend>rclpy</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
@@ -17,9 +19,10 @@
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>nmea_msgs</exec_depend>
+  <exec_depend>gps_msgs</exec_depend>
   <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend>
-  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>tf2_ros_py</exec_depend>
   <exec_depend>python3-serial</exec_depend>
   <exec_depend>tf_transformations</exec_depend>
 

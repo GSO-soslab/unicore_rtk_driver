@@ -1,12 +1,12 @@
-"""Turn validated receiver lines into ROS messages.
+"""Convert NMEA and Unicore sentences from the receiver into ROS messages.
 
-GnssProcessor has no serial port and no rclpy.Node, so it can be driven from
-tests or from a recorded bag.  The node calls
-`handle_nmea()` / `handle_unicore()` with each line and its arrival stamp, and
-receives messages through the `publish(name, msg)` callback.
+The node calls `handle_nmea()` / `handle_unicore()` with each line and its
+arrival stamp; GnssProcessor validates the line, parses it and passes the
+resulting messages to the `publish(name, msg)` callback.  The tests call the
+same methods with recorded lines.
 
 Output names (the node maps them to topics):
-    fix, time_ref, global_velocity, heading_odometry, heading_enu_pose,
+    fix, gpsfix, time_ref, global_velocity, heading_odometry, heading_enu_pose,
     heading_enu_pose_imu, heading_enu_pose_imu_manual, simple_heading,
     unicore_velocity
 
@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 import tf_transformations
 from builtin_interfaces.msg import Time
+from gps_msgs.msg import GPSFix, GPSStatus
 from geometry_msgs.msg import (PoseWithCovarianceStamped, Quaternion,
                                TwistStamped, TwistWithCovarianceStamped)
 from nav_msgs.msg import Odometry
@@ -27,6 +28,28 @@ from unicore_rtk_driver.protocol import nmea_parser, unicore_parser
 from unicore_rtk_driver.protocol.checksums import nmea_is_valid, unicore_is_valid
 
 FIX_COVARIANCE_MODES = ('hdop_scaled', 'gst')
+
+# GGA quality indicator -> gps_msgs/GPSStatus status (gps_msgs 3.1, ROS 2 Jazzy).
+# Dead reckoning (6) and simulation (8) are not GNSS solutions and map to
+# STATUS_NO_FIX; GGA_SOLUTION_NAMES keeps the exact type for diagnostics.
+GGA_TO_GPS_STATUS = {
+    0: GPSStatus.STATUS_NO_FIX,
+    1: GPSStatus.STATUS_FIX,
+    2: GPSStatus.STATUS_DGPS_FIX,
+    3: GPSStatus.STATUS_FIX,          # PPS fix
+    4: GPSStatus.STATUS_RTK_FIX,
+    5: GPSStatus.STATUS_RTK_FLOAT,
+    6: GPSStatus.STATUS_NO_FIX,       # dead reckoning
+    7: GPSStatus.STATUS_FIX,          # manually entered position, e.g. a fixed base
+    8: GPSStatus.STATUS_NO_FIX,       # simulation
+    9: GPSStatus.STATUS_WAAS_FIX,
+}
+
+# GGA quality indicator -> name used in diagnostics
+GGA_SOLUTION_NAMES = {
+    0: 'no fix', 1: 'single', 2: 'DGPS', 3: 'PPS', 4: 'RTK fixed', 5: 'RTK float',
+    6: 'dead reckoning', 7: 'manual position', 8: 'simulation', 9: 'SBAS',
+}
 
 
 @dataclass
@@ -95,6 +118,8 @@ class GnssProcessor:
         self.imu_rotation = None
 
         self.hdop = float('nan')
+        self.gga_quality = None
+        self.num_satellites = 0
         self.valid_fix = False
         self._gga_fresh = False
         self.last_gga = None  # raw text, used e.g. by NTRIP casters (VRS)
@@ -161,6 +186,8 @@ class GnssProcessor:
         fix.header.frame_id = self.cfg.gps_frame_id
 
         fix_type = data['fix_type']
+        self.gga_quality = fix_type
+        self.num_satellites = data['num_satellites']
         if fix_type not in self.gps_qualities:
             fix_type = -1
         gps_qual = self.gps_qualities[fix_type]
@@ -235,8 +262,31 @@ class GnssProcessor:
             fix.position_covariance[8] = (2 * self.hdop * alt_std) ** 2
 
         self.publish('fix', fix)
+        self.publish('gpsfix', self._gpsfix(fix))
         self._gga_fresh = False
         return True
+
+    def _gpsfix(self, fix: NavSatFix) -> GPSFix:
+        """GPSFix with the same position and covariance as `fix`, and the
+        receiver's solution type (RTK fixed / float) in status.status.
+        Fields the driver has no source for are NaN."""
+        msg = GPSFix()
+        for name in ('track', 'speed', 'climb', 'pitch', 'roll', 'dip', 'time', 'gdop',
+                     'pdop', 'vdop', 'tdop', 'err', 'err_horz', 'err_vert', 'err_track',
+                     'err_speed', 'err_climb', 'err_time', 'err_pitch', 'err_roll', 'err_dip'):
+            setattr(msg, name, float('nan'))
+        msg.header = fix.header
+        msg.status.header = fix.header
+        msg.status.status = GGA_TO_GPS_STATUS.get(self.gga_quality, GPSStatus.STATUS_NO_FIX)
+        msg.status.satellites_used = self.num_satellites
+        msg.status.position_source = GPSStatus.SOURCE_GPS
+        msg.latitude = fix.latitude
+        msg.longitude = fix.longitude
+        msg.altitude = fix.altitude
+        msg.hdop = self.hdop
+        msg.position_covariance = fix.position_covariance
+        msg.position_covariance_type = fix.position_covariance_type
+        return msg
 
     # -------------------------------------------------------------- Unicore
     def handle_unicore(self, line: str, stamp: Time) -> bool:

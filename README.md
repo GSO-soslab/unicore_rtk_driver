@@ -50,8 +50,8 @@ RTCM inputs (UDP, TCP, NTRIP, serial) -> RtcmRouter -> SerialLink (written to th
 ## Installation
 
 ### Dependencies
-All dependencies are declared in `package.xml` and installed with `rosdep`, including `nmea_msgs`
-and `tf_transformations`. Update the package indexes first; an outdated apt index makes the ROS
+All dependencies are declared in `package.xml` and installed with `rosdep`, including `nmea_msgs`,
+`gps_msgs` and `tf_transformations`. Update the package indexes first; an outdated apt index makes the ROS
 package downloads fail with `404 Not Found`.
 ```bash
 cd ~/ros2_ws/src
@@ -146,6 +146,29 @@ NTRIP caster ------------------------------------------> driver (mode: rover, nt
 - The measured latency from the base receiver port to the rover receiver port, both nodes on one
   host over TCP loopback, is about 2.3 ms. This excludes radio and network transmission time.
 
+RTK solution quality:
+- `sensor_msgs/NavSatFix` reports RTK fixed and RTK float with the same status (`STATUS_GBAS_FIX`).
+  `~/gpsfix` reports them as `STATUS_RTK_FIX` and `STATUS_RTK_FLOAT`; use it where the solution type
+  matters (monitoring, mission logic). `/diagnostics` shows the same information as text.
+- Estimators should weight the position by its covariance. On a vehicle that uses RTK, set
+  `fix_covariance_mode: gst` so the covariance comes directly from the receiver's GST error
+  estimate (centimeter level with an RTK fixed solution).
+
+GGA quality to `gps_msgs/GPSStatus`:
+
+| GGA quality | Solution | `status.status` |
+|---|---|---|
+| 0 | no fix | `STATUS_NO_FIX` |
+| 1 | single | `STATUS_FIX` |
+| 2 | DGPS | `STATUS_DGPS_FIX` |
+| 3 | PPS | `STATUS_FIX` |
+| 4 | RTK fixed | `STATUS_RTK_FIX` |
+| 5 | RTK float | `STATUS_RTK_FLOAT` |
+| 6 | dead reckoning | `STATUS_NO_FIX` |
+| 7 | manual position | `STATUS_FIX` |
+| 8 | simulation | `STATUS_NO_FIX` |
+| 9 | SBAS | `STATUS_WAAS_FIX` |
+
 RTCM endpoints:
 
 | URI | Output (base) | Input (rover) |
@@ -209,6 +232,7 @@ Topic names are relative to the node and can be changed with the `*_topic` param
 | Topic | Type | Source | Description |
 |---|---|---|---|
 | `~/fix` | `sensor_msgs/NavSatFix` | GGA, GST | Position. Published when GST arrives, using the most recent GGA. |
+| `~/gpsfix` | `gps_msgs/GPSFix` | GGA, GST | Same position and covariance as `~/fix`, with the solution type in `status.status` (`STATUS_RTK_FIX`, `STATUS_RTK_FLOAT`, ...), satellites used and HDOP. Fields without a source are NaN. |
 | `~/heading_odometry` | `nav_msgs/Odometry` | UNIHEADINGA | True heading as yaw in `heading_frame_id` (NED), child frame `gps_frame_id`. |
 | `~/heading_enu_pose` | `geometry_msgs/PoseWithCovarianceStamped` | UNIHEADINGA | Heading counter clockwise from east, `frame_id` = `heading_enu_frame_id`. |
 | `~/heading_enu_pose/imu` | `geometry_msgs/PoseWithCovarianceStamped` | UNIHEADINGA, IMU, TF | IMU roll and pitch with GNSS heading, in the IMU frame. Requires `imu_topic`. |
@@ -218,7 +242,7 @@ Topic names are relative to the node and can be changed with the `*_topic` param
 | `~/global_velocity` | `geometry_msgs/TwistStamped` | RMC | East and north velocity from speed and course, `frame_id` = `velocity_frame_id`. |
 | `~/time_ref` | `sensor_msgs/TimeReference` | RMC | GNSS UTC time. |
 | `~/nmea` | `nmea_msgs/Sentence` | all lines | Raw receiver output. Published only when there is a subscriber. |
-| `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | | Serial link, fix status, RTCM rates and age, transport status, base position. |
+| `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | | Serial link, fix status, solution type, satellites used, RTCM rates and age, transport status, base position. |
 
 ### Subscribed topics
 
@@ -305,7 +329,7 @@ Validation and covariance. The defaults reproduce the output of previous version
 | `heading_use_gnss_time` | `false` | Stamp heading outputs with the GPS time in the UNIHEADINGA header |
 | `epe_quality0` ... `epe_quality9` | | Default position error per GGA fix quality, kept for compatibility |
 
-Topic name parameters: `fix_topic`, `heading_enu_pose_topic`, `time_ref_topic`, `nmea_topic`,
+Topic name parameters: `fix_topic`, `gpsfix_topic`, `heading_enu_pose_topic`, `time_ref_topic`, `nmea_topic`,
 `global_vel_topic`, `simple_heading_topic`, `unicore_heading_topic`, `unicore_velocity_topic`,
 `tx_cmd_topic`.
 
