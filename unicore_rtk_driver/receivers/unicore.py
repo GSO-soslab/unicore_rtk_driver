@@ -55,7 +55,7 @@ class UnicoreReceiver(GnssReceiver):
         return cmds
 
     def save_configuration_command(self) -> str:
-        return 'saveconfig'  # spelling used by the original tx_cmd handler
+        return 'saveconfig'
 
     def is_command_response(self, line: str) -> bool:
         return line.startswith('$command,')

@@ -146,9 +146,6 @@ def convert_agric_speed_type(field):
     Returns:
         True if the speed solution is valid
     """
-    # NOTE: the field arrives as a string ("0"); comparing it to the int 0
-    # always failed before, so every AGRICA speed was treated as invalid and
-    # the (inverted) check in the node let them all through.
     return safe_int(field) == 0 and str(field).strip() != ''
 
 
@@ -182,9 +179,7 @@ def convert_time_argica(year, month, day, hour, min, sec):
         unix seconds(int): unix seconds
     """
 
-    # AGRICA counts years from 2000 ("2016 -> 16; 2116 -> 116").  The
-    # original code took the year from the PC clock and ignored this field,
-    # which only mattered around New Year (and when replaying old data).
+    # AGRICA counts years from 2000 ("2016 -> 16; 2116 -> 116").
     actual_year = 2000 + year
 
     unix_secs = calendar.timegm((actual_year, month, day, hour, min, sec))

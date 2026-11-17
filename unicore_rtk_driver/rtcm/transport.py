@@ -91,7 +91,6 @@ class Transport:
         except ValueError as e:
             raise ValueError(f'bad option in {endpoint.uri!r}: {e}')
         self.bytes = 0
-        self.errors = 0
         self._stop = threading.Event()
         self._threads: List[threading.Thread] = []
 
@@ -135,7 +134,6 @@ class UdpSink(Sink):
             self._sock.sendto(data, self._addr)
             self.bytes += len(data)
         except OSError as e:
-            self.errors += 1
             self.log.warn(f'RTCM {self.name}: {e}', throttle_duration_sec=5.0)
 
     def stop(self):
@@ -177,7 +175,6 @@ class TcpServerSink(Sink):
                 conn.sendall(data)
                 self.bytes += len(data)
             except OSError:
-                self.errors += 1
                 self.log.warn(f'RTCM {self.name}: dropping client {addr[0]}:{addr[1]}')
                 with self._lock:
                     self._clients.pop(conn, None)
@@ -225,7 +222,6 @@ class TcpClientSink(Sink):
             s.sendall(data)
             self.bytes += len(data)
         except OSError as e:
-            self.errors += 1
             self.log.warn(f'RTCM {self.name}: {e}, reconnecting')
             with self._lock:
                 self._sock = None
@@ -251,7 +247,6 @@ class SerialSink(Sink):
             self._port.write(data)
             self.bytes += len(data)
         except (serial.SerialException, OSError) as e:
-            self.errors += 1
             self.log.warn(f'RTCM {self.name}: {e}', throttle_duration_sec=5.0)
 
     def stop(self):

@@ -27,8 +27,6 @@ class RtcmStats:
     def __init__(self):
         self._lock = threading.Lock()
         self.message_counts = Counter()
-        self.bytes = 0
-        self.frames = 0
         self.last_time = 0.0
         self._window_start = time.monotonic()
         self._window_bytes = 0
@@ -37,13 +35,8 @@ class RtcmStats:
     def add_frame(self, frame: bytes):
         with self._lock:
             self.message_counts[rtcm3.message_type(frame)] += 1
-            self.frames += 1
-            self._add(len(frame))
-
-    def _add(self, n):
-        self.bytes += n
-        self._window_bytes += n
-        self.last_time = time.monotonic()
+            self._window_bytes += len(frame)
+            self.last_time = time.monotonic()
 
     def roll(self):
         """Update `rate_bps`; call periodically (e.g. from the diagnostics timer)."""
@@ -68,7 +61,6 @@ class RtcmRouter:
         self.incoming = RtcmStats()
         self.base_station: Optional[Tuple[int, float, float, float]] = None  # id, lat, lon, h
         self._inject: Optional[Callable[[bytes], None]] = None
-        self._extra_sinks: List[Callable[[bytes], None]] = []
         self._framers: Dict[int, StreamFramer] = {}
         self._last_frame: Dict[int, float] = {}
         self._inject_lock = threading.Lock()
@@ -79,20 +71,10 @@ class RtcmRouter:
     def add_sink(self, sink: Sink):
         self.sinks.append(sink)
 
-    def add_callback_sink(self, fn: Callable[[bytes], None]):
-        """Extra in-process consumer (e.g. a ROS topic publisher)."""
-        self._extra_sinks.append(fn)
-
     def add_source(self, factory: Callable[[Callable[[bytes], None]], Source]):
         """`factory(on_data)` builds the source; its priority is its position."""
         index = len(self.sources)
         self.sources.append(factory(lambda data: self.inject(data, index)))
-
-    def make_injector(self) -> Callable[[bytes], None]:
-        """Callback for an extra, lowest-priority source (e.g. a ROS topic)."""
-        index = 1000 + len(self._framers)
-        self._framers[index] = StreamFramer(parse_text=False)
-        return lambda data: self.inject(data, index)
 
     def set_injector(self, fn: Callable[[bytes], None]):
         """Where incoming corrections go (the receiver's serial port)."""
@@ -116,8 +98,6 @@ class RtcmRouter:
         self._note_station(frame)
         for sink in self.sinks:
             sink.send(frame)
-        for fn in self._extra_sinks:
-            fn(frame)
 
     # -------------------------------------------------------- rover side
     def inject(self, data: bytes, source_index: int = 0):
@@ -146,7 +126,7 @@ class RtcmRouter:
                 self._note_station(frame)
 
     def _source_name(self, index):
-        return self.sources[index].name if index < len(self.sources) else 'ros topic'
+        return self.sources[index].name if index < len(self.sources) else f'input {index}'
 
     def _note_station(self, frame: bytes):
         arp = rtcm3.station_arp_ecef(frame)

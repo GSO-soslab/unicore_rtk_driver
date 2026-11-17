@@ -56,8 +56,6 @@ class BaseStationSettings:
     mode_command: str = ''
     # Survey-in: average the position for at least this long.
     survey_in_min_duration_s: int = 120
-    # Survey-in accuracy target; only used by receivers that support it.
-    survey_in_accuracy_m: float = 2.0
     # Fixed base: use a surveyed position instead of survey-in.
     use_fixed_position: bool = False
     fixed_latitude_deg: float = 0.0

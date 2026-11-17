@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from rtcm_helpers import message, station_1005
+from rtcm_helpers import lla_to_ecef, message, station_1005
 from unicore_rtk_driver.rtcm import rtcm3
 from unicore_rtk_driver.rtcm.router import RtcmRouter
 from unicore_rtk_driver.rtcm.transport import create_sink, create_source, parse_endpoint
@@ -38,7 +38,7 @@ def wait_for(cond, timeout=3.0):
 # ------------------------------------------------------------------- rtcm3
 def test_station_position_roundtrip():
     lat, lon, h = 41.49126464, -71.42186016, -14.11
-    x, y, z = rtcm3.lla_to_ecef(lat, lon, h)
+    x, y, z = lla_to_ecef(lat, lon, h)
     fr = station_1005(42, x, y, z)
     assert rtcm3.message_type(fr) == 1005
     sid, dx, dy, dz = rtcm3.station_arp_ecef(fr)
@@ -95,7 +95,7 @@ def test_router_drops_non_rtcm_bytes():
 def test_router_reports_base_station():
     log = Log()
     r = RtcmRouter(log)
-    x, y, z = rtcm3.lla_to_ecef(41.5, -71.4, 10.0)
+    x, y, z = lla_to_ecef(41.5, -71.4, 10.0)
     r.publish(station_1005(7, x, y, z))
     assert r.base_station[0] == 7
     assert r.base_station[1:3] == pytest.approx((41.5, -71.4), abs=1e-8)

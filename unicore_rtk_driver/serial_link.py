@@ -1,9 +1,9 @@
 """Serial connection to the receiver.
 
-A dedicated thread blocks on the port and hands every chunk to `on_data`
-together with the time it was read, so arrival stamps do not depend on a ROS
-timer and RTCM can be forwarded immediately.  The port is (re)opened
-automatically, so unplugging the receiver no longer kills the node.
+A dedicated thread blocks on the port and passes every chunk to `on_data` as
+soon as it is read, so arrival stamps do not depend on a ROS timer and RTCM
+can be forwarded immediately.  The port is (re)opened
+automatically after a disconnect.
 
 Writes (commands, RTCM corrections) can come from any thread; they are
 serialised with a lock so a correction frame is never interleaved with a
@@ -30,8 +30,6 @@ class SerialLink:
         self.on_data = on_data
         self.on_connect = on_connect
         self.bytes_read = 0
-        self.bytes_written = 0
-        self.connect_count = 0
         self._port: Optional[serial.Serial] = None
         self._write_lock = threading.Lock()
         self._stop = threading.Event()
@@ -59,7 +57,6 @@ class SerialLink:
         with self._write_lock:
             try:
                 port.write(data)
-                self.bytes_written += len(data)
                 return True
             except (serial.SerialException, OSError) as e:
                 self.log.warn(f'Serial write to {self.device} failed: {e}',
@@ -77,7 +74,6 @@ class SerialLink:
             self.log.warn(f'Cannot open {self.device}: {e}', throttle_duration_sec=10.0)
             return False
         self._port = port
-        self.connect_count += 1
         self.log.info(f'Opened {self.device} at {self.baudrate} baud')
         if self.on_connect is not None:
             try:

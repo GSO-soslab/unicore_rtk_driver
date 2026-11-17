@@ -1,8 +1,7 @@
 """Turn validated receiver lines into ROS messages.
 
-This is the message-building logic that used to live inside the node
-(parse_nmea / parse_unicore).  It has no serial port and no rclpy.Node, so it
-can be driven from tests or from a recorded bag.  The node calls
+GnssProcessor has no serial port and no rclpy.Node, so it can be driven from
+tests or from a recorded bag.  The node calls
 `handle_nmea()` / `handle_unicore()` with each line and its arrival stamp, and
 receives messages through the `publish(name, msg)` callback.
 
@@ -11,13 +10,12 @@ Output names (the node maps them to topics):
     heading_enu_pose_imu, heading_enu_pose_imu_manual, simple_heading,
     unicore_velocity
 
-Frame / unit conventions are unchanged from the original driver unless noted
-(see README "Conventions").  Behaviour changes are opt-in via Config flags and
-default to the original behaviour.
+Frame conventions are described in the README.
 """
 import math
 from dataclasses import dataclass
 
+import tf_transformations
 from builtin_interfaces.msg import Time
 from geometry_msgs.msg import (PoseWithCovarianceStamped, Quaternion,
                                TwistStamped, TwistWithCovarianceStamped)
@@ -27,7 +25,6 @@ from std_msgs.msg import Float32
 
 from unicore_rtk_driver.protocol import nmea_parser, unicore_parser
 from unicore_rtk_driver.protocol.checksums import nmea_is_valid, unicore_is_valid
-from unicore_rtk_driver.utils import rotations
 
 FIX_COVARIANCE_MODES = ('hdop_scaled', 'gst')
 
@@ -39,12 +36,9 @@ class Config:
     heading_enu_frame_id: str = 'world_enu'
     # Frame for global_velocity and unicore_velocity.  Their data is
     # East/North/Up, so this should be an ENU world frame (<robot>/world).
-    # Before: global_velocity used heading_frame_id (world_ned) on jazzy-devel,
-    # and the hard-coded 'world' before that; unicore_velocity used
-    # heading_frame_id.
     velocity_frame_id: str = 'world'
     use_gnss_time: bool = False
-    # degrees (the old code comment said radians; the code always used degrees)
+    # degrees
     heading_correction_angle_gps_to_imu: float = -3.0
     epe_quality0: float = 1000000.0
     epe_quality1: float = 4.0
@@ -52,16 +46,17 @@ class Config:
     epe_quality4: float = 0.02
     epe_quality5: float = 4.0
     epe_quality9: float = 3.0
-    # ---- opt-in behaviour changes (defaults = original behaviour) ----
-    # 'hdop_scaled' (original): var = (hdop * gst_std)^2, alt uses 2*hdop.
+    # ---- optional behaviour ----
+    # 'hdop_scaled': var = (hdop * gst_std)^2, alt uses 2*hdop.
     # 'gst': var = gst_std^2 (GST std devs are already 1-sigma metres).
     fix_covariance_mode: str = 'hdop_scaled'
-    # True: reject UNIHEADINGA when there is no solution OR the status is not
-    #       SOL_COMPUTED (original: only when both), and only publish a fix
-    #       when a valid GGA arrived since the last published fix.
+    # False: reject UNIHEADINGA only when there is no solution AND the status
+    #        is not SOL_COMPUTED.
+    # True:  reject it when either is the case, and only publish a fix when a
+    #        valid GGA arrived since the last published fix.
     strict_validation: bool = False
-    # True: stamp heading outputs with the GPS time in the UNIHEADINGA header
-    #       (original: always arrival time, even with use_gnss_time).
+    # True: stamp heading outputs with the GPS time in the UNIHEADINGA header.
+    # False: arrival time, independent of use_gnss_time.
     heading_use_gnss_time: bool = False
 
 
@@ -74,7 +69,7 @@ def _quat(q) -> Quaternion:
 
 
 def rpy_to_quaternion(r, p, y) -> Quaternion:
-    return _quat(rotations.quaternion_from_euler(r, p, y))
+    return _quat(tf_transformations.quaternion_from_euler(r, p, y))
 
 
 class GnssProcessor:
@@ -234,7 +229,7 @@ class GnssProcessor:
             fix.position_covariance[0] = lon_std ** 2
             fix.position_covariance[4] = lat_std ** 2
             fix.position_covariance[8] = alt_std ** 2
-        else:  # 'hdop_scaled', the original behaviour
+        else:  # 'hdop_scaled'
             fix.position_covariance[0] = (self.hdop * lon_std) ** 2
             fix.position_covariance[4] = (self.hdop * lat_std) ** 2
             fix.position_covariance[8] = (2 * self.hdop * alt_std) ** 2
@@ -278,7 +273,7 @@ class GnssProcessor:
         if self.cfg.strict_validation:
             invalid = no_solution or data['Pose_Type'] is None or bad_status
         else:
-            invalid = no_solution and bad_status  # original behaviour
+            invalid = no_solution and bad_status
         if invalid:
             self.log.warn("Unicore Driver - UNICORE UNIHEADINGA sentence is not vaild")
             return False
@@ -333,25 +328,23 @@ class GnssProcessor:
         if self.lookup_rotation is None:
             return
         q_imu = [imu_rotation.x, imu_rotation.y, imu_rotation.z, imu_rotation.w]
-        R_IMU_WORLD = rotations.quaternion_matrix(q_imu)
-        R_GPS_IMU = rotations.quaternion_matrix(
+        R_IMU_WORLD = tf_transformations.quaternion_matrix(q_imu)
+        R_GPS_IMU = tf_transformations.quaternion_matrix(
             self.lookup_rotation(imu_frame, self.cfg.gps_frame_id))
         R_GPS_WORLD = R_IMU_WORLD @ R_GPS_IMU
-        roll, pitch, _ = rotations.euler_from_matrix(R_GPS_WORLD)
-        R_GPS_WORLD_CORRECTED = rotations.quaternion_matrix(
-            rotations.quaternion_from_euler(roll, pitch, heading_enu))
+        roll, pitch, _ = tf_transformations.euler_from_matrix(R_GPS_WORLD)
+        R_GPS_WORLD_CORRECTED = tf_transformations.quaternion_matrix(
+            tf_transformations.quaternion_from_euler(roll, pitch, heading_enu))
         R_IMU_WORLD = R_GPS_WORLD_CORRECTED @ R_GPS_IMU.T
 
         final = PoseWithCovarianceStamped()
         final.header.stamp = stamp
         final.header.frame_id = imu_frame
-        final.pose.pose.orientation = _quat(rotations.quaternion_from_matrix(R_IMU_WORLD))
+        final.pose.pose.orientation = _quat(tf_transformations.quaternion_from_matrix(R_IMU_WORLD))
         final.pose.covariance[35] = heading_var
         self.publish('heading_enu_pose_imu', final)
 
     def _agrica(self, data, stamp):
-        # Original check was `Pose_Type == 0 or Speed_Vaild`, with Speed_Vaild
-        # always False because of a str/int comparison: invalid speeds passed.
         if data['Pose_Type'] == 0 or not data['Speed_Valid']:
             self.log.warn("Unicore Driver - UNICORE AGRICA sentence is not vaild")
             return False

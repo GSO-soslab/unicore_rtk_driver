@@ -59,11 +59,3 @@ def ecef_to_lla(x: float, y: float, z: float) -> Tuple[float, float, float]:
     n = _A / math.sqrt(1 - _E2 * math.sin(lat) ** 2)
     h = p / math.cos(lat) - n
     return math.degrees(lat), math.degrees(lon), h
-
-
-def lla_to_ecef(lat_deg: float, lon_deg: float, h: float) -> Tuple[float, float, float]:
-    lat, lon = math.radians(lat_deg), math.radians(lon_deg)
-    n = _A / math.sqrt(1 - _E2 * math.sin(lat) ** 2)
-    return ((n + h) * math.cos(lat) * math.cos(lon),
-            (n + h) * math.cos(lat) * math.sin(lon),
-            (n * (1 - _E2) + h) * math.sin(lat))

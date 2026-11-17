@@ -39,11 +39,6 @@ from unicore_rtk_driver.rtcm.router import RtcmRouter
 from unicore_rtk_driver.rtcm.transport import create_sink, create_source
 from unicore_rtk_driver.serial_link import SerialLink
 
-try:
-    from rtcm_msgs.msg import Message as RtcmMsg
-except ImportError:  # optional: only needed for rtcm.ros_topic
-    RtcmMsg = None
-
 
 def _non_empty(values):
     return [v for v in values if v and v.strip()]
@@ -96,7 +91,7 @@ class UnicoreDriver(Node):
     # ================================================================ params
     def _declare_parameters(self):
         d = self.declare_parameter
-        # --- serial / original parameters (names and defaults unchanged)
+        # --- serial port, gpsd and topics
         d('device', '/dev/ttyUSB0')
         d('baudrate', 115200)
         d('use_gnss_time', False)
@@ -140,7 +135,6 @@ class UnicoreDriver(Node):
         # --- base station
         d('base.mode_command', '')
         d('base.survey_in_min_duration_s', 120)
-        d('base.survey_in_accuracy_m', 2.0)
         d('base.use_fixed_position', False)
         d('base.fixed_latitude_deg', 0.0)
         d('base.fixed_longitude_deg', 0.0)
@@ -149,7 +143,6 @@ class UnicoreDriver(Node):
         # --- RTCM transport
         d('rtcm.outputs', [''])
         d('rtcm.inputs', [''])
-        d('rtcm.ros_topic', '')
         d('rtcm.failover_timeout_s', 5.0)
         d('rtcm.correction_timeout_s', 5.0)
         d('diagnostics_period', 1.0)
@@ -171,7 +164,6 @@ class UnicoreDriver(Node):
         return BaseStationSettings(
             mode_command=self.p('base.mode_command').strip(),
             survey_in_min_duration_s=self.p('base.survey_in_min_duration_s'),
-            survey_in_accuracy_m=self.p('base.survey_in_accuracy_m'),
             use_fixed_position=self.p('base.use_fixed_position'),
             fixed_latitude_deg=self.p('base.fixed_latitude_deg'),
             fixed_longitude_deg=self.p('base.fixed_longitude_deg'),
@@ -179,7 +171,7 @@ class UnicoreDriver(Node):
             rtcm_messages=parse_rtcm_message_list(self.p('base.rtcm_messages')))
 
     def _setup_logging(self):
-        # parsers log through Python logging ('rosout'), as before
+        # the parsers log through Python logging ('rosout')
         level = logging.DEBUG if self.p('debug') else logging.INFO
         logging.getLogger('rosout').setLevel(level)
         if self.p('debug'):
@@ -216,25 +208,7 @@ class UnicoreDriver(Node):
                     uri, log, on_data, gga_provider=lambda: self.processor.last_gga))
         self.router.set_injector(self.link.write)
 
-        topic = self.p('rtcm.ros_topic')
-        if topic:
-            if RtcmMsg is None:
-                log.error('rtcm.ros_topic is set but rtcm_msgs is not installed; ignoring it')
-            elif self.mode is OperatingMode.BASE:
-                pub = self.create_publisher(RtcmMsg, topic, 10)
-
-                def publish_frame(frame):
-                    msg = RtcmMsg()
-                    msg.header.stamp = self.get_clock().now().to_msg()
-                    msg.header.frame_id = self.p('gps_frame_id')
-                    msg.message = list(frame)
-                    pub.publish(msg)
-                self.router.add_callback_sink(publish_frame)
-            else:
-                inject = self.router.make_injector()
-                self.create_subscription(RtcmMsg, topic, lambda m: inject(bytes(m.message)), 10)
-
-        if self.mode is OperatingMode.BASE and not (self.router.sinks or topic):
+        if self.mode is OperatingMode.BASE and not self.router.sinks:
             log.warn('Base mode without rtcm.outputs: corrections are not sent anywhere')
 
     # ============================================================== receiver

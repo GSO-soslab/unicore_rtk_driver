@@ -42,9 +42,6 @@ class StreamFramer:
         self._parse_text = parse_text
         self.dropped_bytes = 0
 
-    def reset(self):
-        self._buf.clear()
-
     def feed(self, data: bytes):
         self._buf.extend(data)
         frames = []

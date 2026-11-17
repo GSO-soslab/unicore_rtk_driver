@@ -1,4 +1,6 @@
 """Build RTCM 3 frames for tests."""
+import math
+
 from unicore_rtk_driver.protocol.checksums import crc24q
 
 
@@ -28,3 +30,14 @@ def station_1005(station_id, x, y, z) -> bytes:
         (round(y * 1e4), 38), (0, 2),
         (round(z * 1e4), 38),
     ]))
+
+
+def lla_to_ecef(lat_deg, lon_deg, h):
+    """WGS84 latitude, longitude (deg) and ellipsoidal height (m) to ECEF (m)."""
+    a, f = 6378137.0, 1 / 298.257223563
+    e2 = f * (2 - f)
+    lat, lon = math.radians(lat_deg), math.radians(lon_deg)
+    n = a / math.sqrt(1 - e2 * math.sin(lat) ** 2)
+    return ((n + h) * math.cos(lat) * math.cos(lon),
+            (n + h) * math.cos(lat) * math.sin(lon),
+            (n * (1 - e2) + h) * math.sin(lat))

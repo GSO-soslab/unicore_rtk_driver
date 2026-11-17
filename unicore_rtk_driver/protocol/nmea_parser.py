@@ -180,7 +180,6 @@ def convert_time_rmc(date_str, time_str, now=None):
     """
     utc_year = int(date_str[4:6])
     # pick the century that puts the year within 50 years of the PC year
-    # (the formula inherited from nmea_navsat_driver returned pc_year itself)
     years = (pc_year // 100) * 100 + utc_year
     if years - pc_year > 50:
         years -= 100

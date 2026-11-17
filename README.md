@@ -13,7 +13,7 @@ and supports operation as an RTK rover or as an RTK base station.
   receiver type
 
 RTCM corrections are exchanged over UDP, TCP, serial radio or NTRIP directly from the serial
-reader and network threads. They are not routed through ROS topics unless `rtcm.ros_topic` is set.
+reader and network threads. They are not routed through ROS topics.
 
 ## Directory structure
 - `unicore_rtk_driver/driver_node.py`: ROS node. Declares parameters, creates topics and services,
@@ -46,12 +46,15 @@ RTCM inputs (UDP, TCP, NTRIP, serial) -> RtcmRouter -> SerialLink (written to th
 ## Installation
 
 ### Dependencies
-`nmea_msgs` and `rtcm_msgs` are the only dependencies that are not part of a default ROS 2
-installation. `rtcm_msgs` is only needed when `rtcm.ros_topic` is used.
+All dependencies are declared in `package.xml` and installed with `rosdep`, including `nmea_msgs`
+and `tf_transformations`. Update the package indexes first; an outdated apt index makes the ROS
+package downloads fail with `404 Not Found`.
 ```bash
 cd ~/ros2_ws/src
 git clone -b jazzy-devel https://github.com/GSO-soslab/unicore_rtk_driver.git
 cd ~/ros2_ws
+sudo apt update
+rosdep update
 rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -y
 ```
 
@@ -175,7 +178,6 @@ Topic names are relative to the node and can be changed with the `*_topic` param
 | `~/time_ref` | `sensor_msgs/TimeReference` | RMC | GNSS UTC time. |
 | `~/nmea` | `nmea_msgs/Sentence` | all lines | Raw receiver output. Published only when there is a subscriber. |
 | `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | | Serial link, fix status, RTCM rates and age, transport status, base position. |
-| `rtcm.ros_topic` | `rtcm_msgs/Message` | RTCM | Base mode only, when `rtcm.ros_topic` is set. |
 
 ### Subscribed topics
 
@@ -183,7 +185,6 @@ Topic names are relative to the node and can be changed with the `*_topic` param
 |---|---|---|
 | `~/tx_cmd` | `std_msgs/String` | Raw command written to the receiver, followed by `saveconfig` when `save_config_after_tx_cmd` is true. |
 | `imu_topic` | `sensor_msgs/Imu` | IMU orientation used for `~/heading_enu_pose/imu*`. |
-| `rtcm.ros_topic` | `rtcm_msgs/Message` | Rover mode only, when `rtcm.ros_topic` is set. Lowest priority input. |
 
 ### Services
 
@@ -239,7 +240,6 @@ Base station:
 |---|---|---|
 | `base.mode_command` | `''` | Base mode command sent verbatim. Empty generates it from the parameters below. |
 | `base.survey_in_min_duration_s` | `120` | Survey-in duration |
-| `base.survey_in_accuracy_m` | `2.0` | Survey-in accuracy target. Not used by UM98x, which uses a time based survey-in. |
 | `base.use_fixed_position` | `false` | Use the fixed position instead of survey-in |
 | `base.fixed_latitude_deg` | `0.0` | Fixed base latitude |
 | `base.fixed_longitude_deg` | `0.0` | Fixed base longitude |
@@ -252,7 +252,6 @@ RTCM:
 |---|---|---|
 | `rtcm.outputs` | `['']` | RTCM outputs, see RTCM endpoints |
 | `rtcm.inputs` | `['']` | RTCM inputs in priority order, see RTCM endpoints |
-| `rtcm.ros_topic` | `''` | Optional `rtcm_msgs/Message` topic |
 | `rtcm.failover_timeout_s` | `5.0` | Time without frames after which the next input is used |
 | `rtcm.correction_timeout_s` | `5.0` | Correction age at which `/diagnostics` reports a warning |
 
