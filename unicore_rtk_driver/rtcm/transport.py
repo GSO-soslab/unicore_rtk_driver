@@ -1,9 +1,5 @@
 """RTCM transports.
 
-Corrections must reach the rover with as little delay as possible, so they do
-not go through the ROS graph by default.  Each transport owns its socket or
-port and, where it has to wait (accept, connect, receive), its own thread.
-
 Endpoints are configured as URIs:
 
   Sinks (base station output)
