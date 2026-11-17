@@ -18,6 +18,7 @@ setup(
         (os.path.join('share', package_name, 'config'), glob('config/*')),
         (os.path.join('share', package_name, 'udev'), glob('udev/*')),
         (os.path.join('share', package_name, 'scripts'), glob('scripts/*')),
+        (os.path.join('share', package_name, 'systemd'), glob('systemd/*')),
 
     ],
     install_requires=['setuptools'],
@@ -31,6 +32,7 @@ setup(
         'console_scripts': [
             'unicore_rtk_driver_node = unicore_rtk_driver.driver_node:main',
             'unicore_rtk_probe = unicore_rtk_driver.tools.probe:main',
+            'unicore_rtk_relay = unicore_rtk_driver.tools.relay:main',
         ],
     },
 )

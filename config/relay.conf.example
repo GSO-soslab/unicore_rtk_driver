@@ -1,0 +1,5 @@
+--device=/dev/ttyACM0
+--baud=115200
+--output=tcpserver://0.0.0.0:2101
+--output=udp://192.168.1.255:2101
+--status-period=60

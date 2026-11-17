@@ -1,0 +1,23 @@
+# RTCM relay for a base station computer without ROS.
+#
+# Install (edit User and the two paths first):
+#   sudo cp systemd/unicore_rtk_relay.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now unicore_rtk_relay
+# Logs:
+#   journalctl -u unicore_rtk_relay -f
+
+[Unit]
+Description=RTCM relay (unicore_rtk_driver)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=CHANGE_ME_USER
+WorkingDirectory=/home/CHANGE_ME_USER/unicore_rtk_driver
+ExecStart=/usr/bin/python3 -m unicore_rtk_driver.tools.relay @/home/CHANGE_ME_USER/rtk/relay.conf
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -14,6 +14,8 @@ and supports operation as an RTK rover or as an RTK base station.
 
 RTCM corrections are exchanged over UDP, TCP, serial radio or NTRIP directly from the serial
 reader and network threads. They are not routed through ROS topics.
+A base station computer without ROS can forward its receiver's RTCM with the included relay
+(see RTCM relay without ROS).
 
 ## Directory structure
 - `unicore_rtk_driver/driver_node.py`: ROS node. Declares parameters, creates topics and services,
@@ -29,9 +31,11 @@ reader and network threads. They are not routed through ROS topics.
 - `unicore_rtk_driver/rtcm/`: RTCM transports (`transport.py`), routing with per source framing and
   failover (`router.py`), RTCM 3 helpers (`rtcm3.py`).
 - `unicore_rtk_driver/tools/probe.py`: command line tool that identifies what a receiver outputs.
+- `unicore_rtk_driver/tools/relay.py`: RTCM relay for a base station computer without ROS.
 - `config/`: example parameter files.
 - `launch/start.launch.py`: launch file with `namespace`, `node_name` and `params_file` arguments.
 - `udev/`, `scripts/`: udev rule template and installer for stable device names.
+- `systemd/`: service file for the RTCM relay.
 - `test/`: unit tests, regression test against recorded data, fixture extraction tool.
 
 Data flow:
@@ -99,6 +103,7 @@ ros2 launch unicore_rtk_driver start.launch.py params_file:=/path/to/params.yaml
 | `rover_rtk.yaml` | UM982 rover. Enables the required outputs and reads corrections from a base over TCP. |
 | `base_um982.yaml` | UM982 base. Survey-in or fixed position, RTCM served over TCP and UDP. |
 | `base_generic.yaml` | Externally configured base (for example SparkFun RTK Surveyor). RTCM forwarded. |
+| `relay.conf.example` | Arguments for the RTCM relay (no ROS), see RTCM relay without ROS. |
 
 - Send a raw command to the receiver.
 ```bash
@@ -159,6 +164,42 @@ Endpoint options are given as a query string, for example `tcp://192.168.1.10:21
 | `send_timeout_s` | 0.05 | tcp, tcpserver, serial outputs | Maximum time a send may block |
 | `baud` | 57600 | serial | Baud rate |
 | `gga_period_s` | 10 | ntrip | Period of the GGA sent to the caster |
+
+### RTCM relay without ROS
+A base station computer that only has to forward corrections does not need ROS. The relay reads
+the receiver's serial port and writes the RTCM frames to the same outputs as `rtcm.outputs`, using
+the same serial link, framing and transports as the node. It needs Python 3 and pyserial only
+(`sudo apt install python3-serial`) and runs from the cloned repository without building it.
+The receiver is not configured by the relay; set up base mode and RTCM output with the receiver's
+own tools.
+
+```bash
+git clone -b jazzy-devel https://github.com/GSO-soslab/unicore_rtk_driver.git
+cd unicore_rtk_driver
+python3 -m unicore_rtk_driver.tools.relay --device /dev/ttyACM0 --baud 115200 \
+    --output tcpserver://0.0.0.0:2101 --output udp://192.168.1.255:2101
+```
+
+Arguments can be kept in a file, one per line (see `config/relay.conf.example`):
+```bash
+python3 -m unicore_rtk_driver.tools.relay @$HOME/rtk/relay.conf
+```
+
+The relay prints a status line every `--status-period` seconds (serial state, RTCM rate, message
+types, output state, base position from RTCM 1005/1006) and warns when no RTCM arrives for
+`--no-rtcm-warning-s` seconds. `systemd/unicore_rtk_relay.service` starts it at boot; edit the user
+and paths in the file before installing it. In a ROS workspace the same tool is available as
+`ros2 run unicore_rtk_driver unicore_rtk_relay`.
+
+| Option | Default | Description |
+|---|---|---|
+| `--device` | required | Receiver serial device |
+| `--baud` | `115200` | Receiver baud rate |
+| `--output` | required | RTCM output URI, repeatable |
+| `--status-period` | `10` | Seconds between status lines, 0 disables them |
+| `--serial-reconnect-s` | `1.0` | Wait between attempts to open the serial port |
+| `--no-rtcm-warning-s` | `10` | Warn when no RTCM arrives for this long |
+| `--log-level` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 
 ## Node: unicore_rtk_driver_node
 
