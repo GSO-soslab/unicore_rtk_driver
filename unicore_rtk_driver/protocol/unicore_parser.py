@@ -3,7 +3,6 @@
 import re
 import logging
 import math
-import datetime
 import calendar
 
 logger = logging.getLogger('rosout')
@@ -142,17 +141,31 @@ def convert_agric_speed_type(field):
     """Convert a Unicore AGRIC - Speed_Type
 
     Args:
-        field (int): 0 or 1
+        field (str or int): 0 (valid) or 1 (invalid), as it appears in the log
 
     Returns:
-        True if the solution is vaild
+        True if the speed solution is valid
     """
-    if field == 0:
-        return True
-    elif field == 1:
-        return False
-    else:
-        return False
+    # NOTE: the field arrives as a string ("0"); comparing it to the int 0
+    # always failed before, so every AGRICA speed was treated as invalid and
+    # the (inverted) check in the node let them all through.
+    return safe_int(field) == 0 and str(field).strip() != ''
+
+
+GPS_EPOCH_UNIX = 315964800  # 1980-01-06T00:00:00Z
+
+
+def gps_week_ms_to_unix(week, week_ms, leap_seconds):
+    """GPS week + milliseconds of week (from a Unicore header) to UNIX time.
+
+    Returns:
+        (sec, nanosec) tuple, or None if the inputs are not usable.
+    """
+    if week <= 0 or week_ms < 0:
+        return None
+    total_ms = week * 604800000 + week_ms - leap_seconds * 1000
+    sec, ms = divmod(total_ms, 1000)
+    return (GPS_EPOCH_UNIX + sec, ms * 1000000)
     
 def convert_time_argica(year, month, day, hour, min, sec):
     """Convert a Unicore ARGICA date to UNIX epoch time.
@@ -169,16 +182,10 @@ def convert_time_argica(year, month, day, hour, min, sec):
         unix seconds(int): unix seconds
     """
 
-    pc_year = datetime.date.today().year
-
-    # Resolve the ambiguity of century
-    """
-    example 1: utc_year = 99, pc_year = 2100
-    years = 2100 + int((2100 % 100 - 99) / 50.0) = 2099
-    example 2: utc_year = 00, pc_year = 2099
-    years = 2099 + int((2099 % 100 - 00) / 50.0) = 2100
-    """
-    actual_year = pc_year + int((pc_year % 100 - year) / 50.0)
+    # AGRICA counts years from 2000 ("2016 -> 16; 2116 -> 116").  The
+    # original code took the year from the PC clock and ignored this field,
+    # which only mattered around New Year (and when replaying old data).
+    actual_year = 2000 + year
 
     unix_secs = calendar.timegm((actual_year, month, day, hour, min, sec))
     return unix_secs
@@ -412,7 +419,7 @@ parse_maps = {
         ("Num_GAL", safe_int, 53),
         # ID:56 0: speed solution status valid
         #       1: speed solution status invalid
-        ("Speed_Vaild", convert_agric_speed_type, 54),
+        ("Speed_Valid", convert_agric_speed_type, 54),
         # ID:57 Reserved
         # ("Reserved3", safe_int, 55),
         # ID:58 Reserved
@@ -439,6 +446,9 @@ def parse_unicore_sentence(unicore_sentence):
     unicore_sentence = unicore_sentence.strip()  
 
     # Get the header and data parts
+    if unicore_sentence.count(';') != 1:
+        logger.debug("Not a single header;data unicore sentence: %s" % repr(unicore_sentence))
+        return False
     header, data = unicore_sentence.split(';')
     # DEBUG:
     # print(header)
@@ -459,14 +469,19 @@ def parse_unicore_sentence(unicore_sentence):
     head_type= "HEAD"
     parse_head_map = parse_maps[head_type]
     parsed_head_sentence = {}
-    for entry in parse_head_map:
-        parsed_head_sentence[entry[0]] = entry[1](header_fields[entry[2]])
-
-    # parse the data part
     parse_data_map = parse_maps[sentence_type]
     parsed_data_sentence = {}
-    for entry in parse_data_map:
-        parsed_data_sentence[entry[0]] = entry[1](data_fields[entry[2]])
+    try:
+        for entry in parse_head_map:
+            parsed_head_sentence[entry[0]] = entry[1](header_fields[entry[2]])
+
+        # parse the data part
+        for entry in parse_data_map:
+            parsed_data_sentence[entry[0]] = entry[1](data_fields[entry[2]])
+    except (IndexError, ValueError) as e:
+        # fewer fields than expected (different firmware?) or a bad field
+        logger.debug("Could not parse %s: %s" % (repr(unicore_sentence), e))
+        return False
 
     return {head_type: parsed_head_sentence, sentence_type: parsed_data_sentence}
 

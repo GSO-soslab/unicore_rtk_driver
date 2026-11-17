@@ -1,6 +1,8 @@
-test/unicore_rtk_driver:
+# Default (rover) configuration.  All parameters, with their defaults, are
+# listed in README.md.  `/**` applies these to the node in any namespace.
+/**:
   ros__parameters:
-    # The usb device for unicore gps
+    # Serial device of the receiver
     # device: /dev/ttyUSB0
     device: /dev/unicore_gps
     baudrate: 115200
@@ -11,3 +13,22 @@ test/unicore_rtk_driver:
     # True: it will print some debug msg for each sentence
     # False: logger used as INFO
     debug: False
+
+    # rover | base
+    mode: rover
+    # unicore | generic   (generic = configured with its own tools, e.g. SparkFun RTK Surveyor)
+    receiver: unicore
+    # Only touch the receiver configuration when asked to.  True: on every
+    # connect send MODE ROVER and enable `receiver_logs` (not saved unless
+    # save_receiver_config).  Needed for a receiver with no outputs enabled.
+    configure_receiver: False
+    # Outputs to enable, "LOG:period_s" (these are the defaults)
+    # receiver_logs: ['GPGGA:1', 'GPGST:1', 'GPRMC:1', 'GPHPR:1', 'UNIHEADINGA:0.5', 'AGRICA:1']
+
+    # RTCM corrections for this rover (any number of sources), e.g.
+    #   tcp://192.168.1.10:2101      connect to a base running tcpserver://
+    #   udp://0.0.0.0:2101           receive broadcast / unicast datagrams
+    #   ntrip://user:pass@caster.example.org:2101/MOUNT
+    #   serial:///dev/ttyUSB1?baud=57600   radio modem
+    rtcm:
+      inputs: ['']

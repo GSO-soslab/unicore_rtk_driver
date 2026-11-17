@@ -2,15 +2,30 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>unicore_rtk_driver</name>
-  <version>0.0.0</version>
-  <description>TODO: unicore_rtk_driver description</description>
+  <version>0.2.0</version>
+  <description>ROS 2 driver for Unicore UM98x GNSS receivers (dual-antenna heading, NMEA) with RTK base/rover support and low-latency RTCM transport (UDP, TCP, serial, NTRIP).</description>
   <maintainer email="mzhou@uri.edu">mingxi</maintainer>
   <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>builtin_interfaces</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>nmea_msgs</exec_depend>
+  <exec_depend>diagnostic_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>rtcm_msgs</exec_depend>
+  <exec_depend>python3-serial</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
   <test_depend>python3-pytest</test_depend>
+  <test_depend>rosidl_runtime_py</test_depend>
 
   <export>
     <build_type>ament_python</build_type>

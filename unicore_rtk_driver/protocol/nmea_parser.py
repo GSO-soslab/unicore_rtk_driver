@@ -101,7 +101,7 @@ def convert_longitude(field):
     return safe_float(field[0:3]) + safe_float(field[3:]) / 60.0
 
 
-def convert_time(nmea_utc):
+def convert_time(nmea_utc, now=None):
     """Extract time info from a NMEA UTC time string and use it to generate a UNIX epoch time.
 
     Time information (hours, minutes, seconds) is extracted from the given string and augmented
@@ -118,13 +118,20 @@ def convert_time(nmea_utc):
     Returns:
         tuple(int, int): 2-tuple of (unix seconds, nanoseconds) if the sentence contains valid time.
         tuple(float, float): 2-tuple of (NaN, NaN) if the sentence does not contain valid time.
+
+    `now` (unix seconds, optional) is the reference used to fill in the date;
+    defaults to the host clock.  Passing the line's arrival time keeps the
+    result identical live and makes it reproducible when replaying a bag.
     """
     # If one of the time fields is empty, return NaN seconds
     if not nmea_utc[0:2] or not nmea_utc[2:4] or not nmea_utc[4:6]:
         return (float('NaN'), float('NaN'))
 
     # Get current time in UTC for date information
-    utc_time = datetime.datetime.utcnow()
+    if now is None:
+        utc_time = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    else:
+        utc_time = datetime.datetime.fromtimestamp(now, datetime.timezone.utc).replace(tzinfo=None)
     hours = int(nmea_utc[0:2])
     minutes = int(nmea_utc[2:4])
     seconds = int(nmea_utc[4:6])
@@ -142,7 +149,7 @@ def convert_time(nmea_utc):
     return (unix_secs, nanosecs)
 
 
-def convert_time_rmc(date_str, time_str):
+def convert_time_rmc(date_str, time_str, now=None):
     """Convert a NMEA RMC date string and time string to UNIX epoch time.
 
     Args:
@@ -159,7 +166,10 @@ def convert_time_rmc(date_str, time_str):
     if not date_str[0:6] or not time_str[0:2] or not time_str[2:4] or not time_str[4:6]:
         return (float('NaN'), float('NaN'))
 
-    pc_year = datetime.date.today().year
+    if now is None:
+        pc_year = datetime.date.today().year
+    else:
+        pc_year = datetime.datetime.fromtimestamp(now, datetime.timezone.utc).year
 
     # Resolve the ambiguity of century
     """
@@ -169,7 +179,13 @@ def convert_time_rmc(date_str, time_str):
     years = 2099 + int((2099 % 100 - 00) / 50.0) = 2100
     """
     utc_year = int(date_str[4:6])
-    years = pc_year + int((pc_year % 100 - utc_year) / 50.0)
+    # pick the century that puts the year within 50 years of the PC year
+    # (the formula inherited from nmea_navsat_driver returned pc_year itself)
+    years = (pc_year // 100) * 100 + utc_year
+    if years - pc_year > 50:
+        years -= 100
+    elif pc_year - years > 50:
+        years += 100
 
     months = int(date_str[2:4])
     days = int(date_str[0:2])
@@ -177,7 +193,9 @@ def convert_time_rmc(date_str, time_str):
     hours = int(time_str[0:2])
     minutes = int(time_str[2:4])
     seconds = int(time_str[4:6])
-    nanosecs = int(time_str[7:]) * pow(10, 9 - len(time_str[7:]))
+    nanosecs = 0
+    if len(time_str) > 7:
+        nanosecs = int(time_str[7:]) * pow(10, 9 - len(time_str[7:]))
 
     unix_secs = calendar.timegm((years, months, days, hours, minutes, seconds))
     return (unix_secs, nanosecs)
@@ -228,7 +246,7 @@ def convert_deg_to_rads(degs):
 
 parse_maps = {
     "GGA": [
-        ("fix_type", int, 6),
+        ("fix_type", safe_int, 6),
         ("latitude", convert_latitude, 2),
         ("latitude_direction", str, 3),
         ("longitude", convert_longitude, 4),
@@ -270,7 +288,7 @@ parse_maps = {
         ("heading", safe_float, 2),
         ("pitch", safe_float, 3),
         ("roll", safe_float, 4),
-        ("fix_type", int, 5),
+        ("fix_type", safe_int, 5),
         ("num_satellites", safe_int, 6),
         ("age", safe_float, 7), # age of correction data
         ("station_id", safe_int, 8), # base station ID
@@ -282,7 +300,7 @@ The parser splits the sentence into comma-delimited fields. The string value of 
 to the appropriate conversion function based on the field index."""
 
 
-def parse_nmea_sentence(nmea_sentence):
+def parse_nmea_sentence(nmea_sentence, now=None):
     """Parse a NMEA sentence string into a dictionary.
 
     Args:
@@ -291,11 +309,13 @@ def parse_nmea_sentence(nmea_sentence):
     Returns:
         A dict mapping string field names to values for each field in the NMEA sentence or
         False if the sentence could not be parsed.
+
+    `now` (unix seconds, optional): reference time for the date, see convert_time().
     """
     # Check for a valid nmea sentence
     nmea_sentence = nmea_sentence.strip()  # Cut possible carriage return or new line of NMEA Sentence
     if not re.match(
-            r'(^\$GP|^\$GN|^\$GL|^\$IN).*\*[0-9A-Fa-f]{2}$', nmea_sentence):
+            r'(^\$GP|^\$GN|^\$GL|^\$GA|^\$GB|^\$GQ|^\$BD|^\$IN).*\*[0-9A-Fa-f]{2}$', nmea_sentence):
         logger.debug(
             "Regex didn't match, sentence not valid NMEA? Sentence was: %s" %
             repr(nmea_sentence))
@@ -313,11 +333,19 @@ def parse_nmea_sentence(nmea_sentence):
     parse_map = parse_maps[sentence_type]
 
     parsed_sentence = {}
-    for entry in parse_map:
-        parsed_sentence[entry[0]] = entry[1](fields[entry[2]])
+    try:
+        for entry in parse_map:
+            if entry[1] is convert_time:
+                parsed_sentence[entry[0]] = convert_time(fields[entry[2]], now)
+            else:
+                parsed_sentence[entry[0]] = entry[1](fields[entry[2]])
 
-    if sentence_type == "RMC":
-        parsed_sentence["utc_time"] = convert_time_rmc(fields[9], fields[1])
-        parsed_sentence["utc_time_pc"] = convert_time(fields[1])
+        if sentence_type == "RMC":
+            parsed_sentence["utc_time"] = convert_time_rmc(fields[9], fields[1], now)
+            parsed_sentence["utc_time_pc"] = convert_time(fields[1], now)
+    except (IndexError, ValueError) as e:
+        # short sentence (other firmware / talker variant) or malformed field
+        logger.debug("Could not parse %s: %s" % (repr(nmea_sentence), e))
+        return False
 
     return {sentence_type: parsed_sentence}
