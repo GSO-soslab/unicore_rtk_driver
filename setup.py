@@ -16,6 +16,8 @@ setup(
         # install launch file
         (os.path.join('share', package_name, 'launch'), glob('launch/*')),
         (os.path.join('share', package_name, 'config'), glob('config/*')),
+        (os.path.join('share', package_name, 'udev'), glob('udev/*')),
+        (os.path.join('share', package_name, 'scripts'), glob('scripts/*')),
 
     ],
     install_requires=['setuptools'],
@@ -28,6 +30,7 @@ setup(
     entry_points={
         'console_scripts': [
             'unicore_rtk_driver_node = unicore_rtk_driver.driver_node:main',
+            'unicore_rtk_probe = unicore_rtk_driver.tools.probe:main',
         ],
     },
 )
