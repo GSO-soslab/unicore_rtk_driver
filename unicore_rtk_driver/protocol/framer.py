@@ -5,11 +5,11 @@ The serial port carries a mix of:
   * Unicore ASCII logs        '#....*xxxxxxxx\\r\\n'     (text)
   * RTCM 3 frames             0xD3 + len + payload + CRC (binary, base mode)
 
-`StreamFramer.feed()` takes whatever bytes were read and returns complete
-frames.  Partial frames are kept until the next call.  Garbage between frames
-(start-up noise, a cut line) is skipped.  Checksums of text lines are *not*
-checked here; that is the parser's job.  RTCM frames are CRC-checked here
-because the CRC is the only way to know a 0xD3 byte really starts a frame.
+`StreamFramer.feed()` takes the bytes read from the port and returns the
+complete frames they contain, keeping a partial frame until the next call and
+skipping bytes between frames.  RTCM frames are returned only when their
+CRC-24Q matches, which also confirms that a 0xD3 byte starts a frame.  Text
+frames are returned as received; the processor validates their checksums.
 """
 from dataclasses import dataclass
 from enum import Enum

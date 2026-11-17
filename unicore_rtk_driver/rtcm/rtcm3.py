@@ -1,7 +1,5 @@
-"""Minimal RTCM 3 helpers: message number and base-station position.
-
-Only what the driver needs for routing and status reporting; correction
-payloads are forwarded untouched.
+"""RTCM 3 helpers: message number of a frame, base station position from
+messages 1005/1006, and ECEF to WGS84 conversion.
 """
 import math
 from typing import Optional, Tuple

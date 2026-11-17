@@ -1,15 +1,14 @@
-"""Forward the RTCM output of a base receiver to the network, without ROS.
+"""Forward RTCM from a base receiver's serial port to UDP, TCP or serial outputs.
 
     python3 -m unicore_rtk_driver.tools.relay --device /dev/ttyACM0 --baud 115200 \\
         --output tcpserver://0.0.0.0:2101 --output udp://192.168.1.255:2101
 
     python3 -m unicore_rtk_driver.tools.relay @/home/user/rtk/relay.conf
 
-Uses the same serial link, framer and RTCM outputs as the ROS node: only
-complete RTCM frames that pass the CRC are forwarded, and the serial port is
-reopened after a disconnect.  NMEA and other text from the receiver is
-ignored.  The receiver is not configured; set up base mode and RTCM output
-with the receiver's own tools.
+Uses the same serial link, framer and RTCM outputs as the ROS node.  Complete
+RTCM frames with a valid CRC are forwarded; NMEA and other text is discarded.
+The serial port is reopened after a disconnect.  Base mode and RTCM output are
+configured on the receiver with its own tools.
 
 Arguments can be read from a file with @FILE, one argument per line, e.g.:
 
@@ -18,7 +17,8 @@ Arguments can be read from a file with @FILE, one argument per line, e.g.:
     --output=tcpserver://0.0.0.0:2101
     --output=udp://192.168.1.255:2101
 
-Requires only Python 3 and pyserial (Debian/Ubuntu: python3-serial).
+Runs with Python 3 and pyserial (Debian/Ubuntu: python3-serial); ROS is
+optional.
 """
 import argparse
 import logging

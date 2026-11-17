@@ -1,10 +1,9 @@
-"""Receivers configured outside this driver.
+"""Receiver type for modules configured with their own tools.
 
-Use for modules that are set up with their own tools and only need their
-NMEA parsed and/or their RTCM forwarded, e.g. a SparkFun RTK Surveyor
-(u-blox ZED-F9P) configured as base or rover through its own menu or web
-config.  No commands are generated; `receiver_commands` can still send raw
-text lines if the module accepts them.
+For example a SparkFun RTK Surveyor (u-blox ZED-F9P) set up as base or rover
+through its own menu.  The driver parses its NMEA and forwards its RTCM.  This
+receiver type generates no configuration commands; `receiver_commands` are
+sent as given.
 """
 from typing import List
 

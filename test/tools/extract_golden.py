@@ -10,7 +10,7 @@ Usage:
     python3 extract_golden.py <bag_dir> <namespace/node> <seconds> <out.json>
     e.g. extract_golden.py rosbag2_2025_11_20 /alpha_rise/unicore_rtk_driver 60 golden.json
 
-`nmea_msgs` does not need to be installed: Sentence is decoded by hand.
+nmea_msgs/Sentence messages are decoded directly from their CDR encoding.
 """
 import json
 import os

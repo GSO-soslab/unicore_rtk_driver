@@ -22,8 +22,8 @@ Per-endpoint options go in the query string:
     gga_period_s=10       ntrip: how often the rover position is sent to the caster
 e.g.  tcp://192.168.1.10:2101?reconnect_s=0.5
 
-A sink's `send()` never blocks for longer than send_timeout_s: a client that
-cannot keep up is dropped rather than delaying every other client.
+A sink's `send()` blocks for at most send_timeout_s per client; a TCP client
+that does not accept the data within that time is disconnected.
 """
 import base64
 import socket

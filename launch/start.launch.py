@@ -1,3 +1,8 @@
+"""Launch the unicore_rtk_driver node.
+
+Arguments: namespace (default 'test'), node_name (default
+'unicore_rtk_driver'), params_file (default config/param.yaml).
+"""
 import os
 
 from ament_index_python.packages import get_package_share_directory

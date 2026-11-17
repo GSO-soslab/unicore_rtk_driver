@@ -1,13 +1,8 @@
 """Serial connection to the receiver.
 
-A dedicated thread blocks on the port and passes every chunk to `on_data` as
-soon as it is read, so arrival stamps do not depend on a ROS timer and RTCM
-can be forwarded immediately.  The port is (re)opened
-automatically after a disconnect.
-
-Writes (commands, RTCM corrections) can come from any thread; they are
-serialised with a lock so a correction frame is never interleaved with a
-command.
+A reader thread passes every chunk to `on_data` as soon as it is read and
+reopens the port after a disconnect.  Writes (commands, RTCM corrections) can
+come from any thread and are serialized with a lock.
 """
 import threading
 from typing import Callable, Optional

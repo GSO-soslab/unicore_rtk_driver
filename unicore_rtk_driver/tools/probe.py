@@ -6,8 +6,8 @@
 
 Listens at each baud rate and reports the NMEA sentences, Unicore logs and
 RTCM messages it sees, with checksum results, then suggests driver
-parameters.  Nothing is written to the receiver unless --query-version is
-given, which sends the read-only Unicore query VERSIONA (no settings change).
+parameters.  With --query-version it also sends the Unicore query VERSIONA,
+which reads the firmware version and leaves the settings unchanged.
 """
 import argparse
 import sys

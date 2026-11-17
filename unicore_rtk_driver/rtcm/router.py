@@ -1,16 +1,15 @@
-"""Fan RTCM between the receiver and the transports, and keep statistics.
+"""Route RTCM between the receiver and the transports, and keep statistics.
 
 Base:  receiver serial --frames--> RtcmRouter.publish() --> every sink
 Rover: sources --bytes--> RtcmRouter.inject() --frames--> receiver serial
 
 Both paths run on the thread that produced the data (serial reader or source
-thread); nothing is queued, so forwarding adds no scheduling delay.
+thread) and write directly to the outputs.
 
-Incoming bytes are re-framed per source and only complete, CRC-checked RTCM
-frames are written to the receiver, so a frame split across TCP reads is never
-interleaved with another source's data.  With several sources, the first one
-in the list that delivered a frame within `failover_timeout_s` is used and
-the others are held back (failover, not mixing).
+Incoming bytes are framed per source, and only complete RTCM frames with a
+valid CRC are written to the receiver.  With several sources, frames from the
+first listed source that delivered a frame within `failover_timeout_s` are
+used.
 """
 import threading
 import time
