@@ -1,6 +1,8 @@
-# Base station configured with its own tools (e.g. SparkFun RTK Surveyor in
-# base mode, RTCM enabled on the port connected to this computer).  The driver
-# only forwards the RTCM it outputs and parses its NMEA.
+# Base station whose receiver is configured with its own tools (for example a
+# SparkFun RTK Surveyor in base mode).  The driver forwards the RTCM the
+# receiver outputs on this port and parses its NMEA.  The receiver must output
+# RTCM on the port connected to this computer; for the Surveyor see "SparkFun
+# RTK Surveyor as base" in the README.
 /**:
   ros__parameters:
     device: /dev/ttyACM0

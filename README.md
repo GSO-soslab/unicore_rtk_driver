@@ -204,6 +204,38 @@ Endpoint options are given as a query string, for example `tcp://192.168.1.10:21
 | `baud` | 57600 | serial | Baud rate |
 | `gga_period_s` | 10 | ntrip | Period of the GGA sent to the caster |
 
+### SparkFun RTK Surveyor as base
+The Surveyor (u-blox ZED-F9P) is configured with its own menu and used with `receiver: generic`
+(`config/base_generic.yaml`). The driver forwards the RTCM it outputs and parses its NMEA.
+
+| Surveyor port | Host device | Carries |
+|---|---|---|
+| Data (4-pin JST, 3.3 V, 115200 baud) | UART, for example `/dev/ttyAMA0` | NMEA from receiver UART1 (internal Serial NMEA Connection switch set to Ext Connector). RTCM after step 2 below. |
+| Configure u-blox (USB-C) | `/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00` | NMEA and RTCM from the receiver USB port. Also charges the Surveyor. |
+| Configure ESP32 (USB-C) | USB serial adapter, 115200 baud | Surveyor configuration menu. |
+| Radio (4-pin JST) | not used | RTCM on receiver UART2, 57600 baud. Pin 1 supplies 3.5 V to 5.5 V; do not connect it to the host. |
+
+Setup:
+1. Base type: open the menu on the Configure ESP32 port (any key), Configure Base, and select
+   Survey-In. A fixed base with wrong coordinates (for example 0, 0, 0) has no fix in base mode and
+   outputs no RTCM 1005. With Survey-In the Surveyor waits for a horizontal accuracy threshold
+   (1 m in current firmware), then surveys until the minimum time and mean accuracy are met.
+2. RTCM on the Data port: on the tested unit the receiver had RTCM output disabled on UART1
+   (`CFG-UART1OUTPROT-RTCM3X = 0`). Enable it through the Configure u-blox port with `ubxtool`
+   (package `gpsd-clients`). The setting is stored in the receiver flash and was kept after a power
+   cycle.
+   ```bash
+   export UBXOPTS="-f /dev/ttyACM0 -s 115200 -P 27"
+   ubxtool -g CFG-UART1OUTPROT-RTCM3X
+   ubxtool -z CFG-UART1OUTPROT-RTCM3X,1
+   ```
+3. Set the SETUP switch to Base. After the survey `unicore_rtk_probe` lists RTCM 1005, 1074, 1084,
+   1124 and 1230, and `/diagnostics` shows `rtcm out bytes/s` and the base position decoded from
+   RTCM 1005.
+
+The Surveyor uses reference station ID 0. Give each base a different ID when more than one base is
+in use.
+
 ### RTCM relay without ROS
 A base station computer that only has to forward corrections does not need ROS. The relay reads
 the receiver's serial port and writes the RTCM frames to the same outputs as `rtcm.outputs`, using
@@ -380,7 +412,7 @@ The following have not been verified on hardware yet:
 - UM982 base commands: `MODE BASE TIME`, `MODE BASE <lat> <lon> <height>` (height reference to be
   confirmed for the firmware in use) and `RTCM<number> [port] <period>`.
 - RTCM input on the same UM982 port that is used for the host connection.
-- SparkFun RTK Surveyor as base or rover with `receiver: generic`.
+- SparkFun RTK Surveyor as rover with `receiver: generic`.
 
 ## Acknowledgment
 The NMEA parser is derived from [nmea_navsat_driver](https://github.com/ros-drivers/nmea_navsat_driver) (BSD license).

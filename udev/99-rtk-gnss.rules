@@ -18,6 +18,7 @@
 # MJRTK UM982 (WCH CH340, no serial number)
 #SUBSYSTEM=="tty", KERNELS=="1-2", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="mjrtk_um982", GROUP="dialout", MODE="0660"
 
-# SparkFun RTK Surveyor: check the IDs with udevadm, they depend on which
-# USB port of the unit is used.
-#SUBSYSTEM=="tty", ATTRS{idVendor}=="XXXX", ATTRS{idProduct}=="XXXX", ATTRS{serial}=="XXXXXXXX", SYMLINK+="rtk_surveyor", GROUP="dialout", MODE="0660"
+# SparkFun RTK Surveyor, Configure u-blox USB-C port (u-blox ZED-F9P USB).
+# Already stable without a rule as
+# /dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00.
+#SUBSYSTEM=="tty", ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", SYMLINK+="rtk_surveyor", GROUP="dialout", MODE="0660"
