@@ -78,6 +78,22 @@ src/unicore_rtk_driver/scripts/install_udev_rules.sh /dev/ttyUSB0 mjrtk_um982
 Log out and back in after the user is added to `dialout`. `udev/99-rtk-gnss.rules` contains
 commented examples for the Holybro, MJRTK and SparkFun units.
 
+### Receiver on a Raspberry Pi UART
+A receiver wired to the Raspberry Pi header (GPIO 14 TX, GPIO 15 RX) shares the UART with the
+serial console that Ubuntu Server enables by default. The console reads the receiver output as
+login attempts (`FAILED LOGIN on '/dev/ttyS0'` in the journal) and writes login prompts to the
+receiver. Disable the console and move GPIO 14/15 to the PL011 UART, which has a larger FIFO and a
+baud rate independent of the core clock (Bluetooth is disabled):
+```bash
+sudo sed -i 's/console=serial0,115200 //' /boot/firmware/cmdline.txt
+sudo systemctl mask serial-getty@ttyS0.service serial-getty@ttyAMA0.service
+echo 'dtoverlay=disable-bt' | sudo tee -a /boot/firmware/config.txt
+sudo reboot
+```
+The receiver is then `/dev/ttyAMA0`. On Raspberry Pi OS, disable the console with `raspi-config`
+(Interface Options, Serial Port: login shell disabled, serial hardware enabled) and add the same
+`dtoverlay=disable-bt` line. Tested on a Raspberry Pi 4 with Ubuntu Server 24.04.
+
 ## Quick test
 
 - Identify what the receiver outputs and at which baud rate. The tool only listens unless
