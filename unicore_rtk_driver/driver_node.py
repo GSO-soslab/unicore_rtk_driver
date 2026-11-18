@@ -14,6 +14,7 @@ class (``receiver``) turns the mode and base settings into module commands
 when ``configure_receiver`` is true.  See README for parameters.
 """
 import logging
+import signal
 import socket
 
 import rclpy
@@ -22,6 +23,7 @@ from gps_msgs.msg import GPSFix
 from geometry_msgs.msg import PoseWithCovarianceStamped, TwistStamped, TwistWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from nmea_msgs.msg import Sentence
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.time import Time as RclpyTime
 from sensor_msgs.msg import Imu, NavSatFix, NavSatStatus, TimeReference
@@ -373,9 +375,14 @@ def main(args=None):
     try:
         node.get_logger().info('Unicore Driver - Start node ...')
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
+        # SIGINT (Ctrl-C) or SIGTERM (systemctl stop, launch)
         pass
     finally:
+        # Under launch the node receives the stop signal twice (from the terminal or systemd,
+        # and forwarded by launch); a repeated signal must not interrupt the cleanup.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         node.close()
         node.get_logger().info('Unicore Driver - Everything is shutdown now!')
         node.destroy_node()
