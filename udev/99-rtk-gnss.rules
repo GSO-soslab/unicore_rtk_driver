@@ -1,0 +1,24 @@
+# Stable device names for GNSS receivers used with unicore_rtk_driver.
+#
+# Easiest: plug the receiver in and run
+#     scripts/install_udev_rules.sh /dev/ttyUSB0 mjrtk_um982
+# which writes a rule for that exact unit to /etc/udev/rules.d/.
+#
+# Or copy this file to /etc/udev/rules.d/, uncomment and adapt.  Find the
+# attributes with:  udevadm info -a -n /dev/ttyUSB0 | grep -E 'idVendor|idProduct|serial|KERNELS'
+#
+# Match on the adapter's serial number when it has one.  Cheap adapters
+# (CH340) have none and share their vendor/product ID with many other
+# devices, so match the USB port as well (KERNELS, e.g. "1-2"); the rule then
+# only applies when the receiver is plugged into that port.
+
+# Holybro H-RTK UM982 (FTDI FT231X)
+#SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6015", ATTRS{serial}=="XXXXXXXX", SYMLINK+="holybro_um982", GROUP="dialout", MODE="0660"
+
+# MJRTK UM982 (WCH CH340, no serial number)
+#SUBSYSTEM=="tty", KERNELS=="1-2", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="mjrtk_um982", GROUP="dialout", MODE="0660"
+
+# SparkFun RTK Surveyor, Configure u-blox USB-C port (u-blox ZED-F9P USB).
+# Already stable without a rule as
+# /dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00.
+#SUBSYSTEM=="tty", ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", SYMLINK+="rtk_surveyor", GROUP="dialout", MODE="0660"

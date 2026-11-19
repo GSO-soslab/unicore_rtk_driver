@@ -1,0 +1,16 @@
+# UM982 rover receiving corrections from a base over the network.
+/**:
+  ros__parameters:
+    device: /dev/unicore_gps
+    baudrate: 115200
+
+    receiver: unicore
+    configure_receiver: True    # MODE ROVER + receiver_logs on every connect
+
+    rtcm:
+      # several inputs = failover: the first one listed that is delivering is used
+      # replace <base_ip> with the address of the base computer
+      inputs: ['tcp://<base_ip>:2101']
+
+    # Raw receiver commands sent on every connect (README, Receiver configuration), e.g.
+    # receiver_commands: ['CONFIG RTK TIMEOUT 30', 'CONFIG DGPS TIMEOUT 60', 'CONFIG']
