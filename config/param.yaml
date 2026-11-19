@@ -24,7 +24,7 @@
     # receiver_logs: ['GPGGA:1', 'GPGST:1', 'GPRMC:1', 'GPHPR:1', 'UNIHEADINGA:0.5', 'AGRICA:1']
 
     # RTCM corrections for this rover (any number of sources), e.g.
-    #   tcp://192.168.1.10:2101      connect to a base running tcpserver://
+    #   tcp://<base_ip>:2101         connect to a base running tcpserver://
     #   udp://0.0.0.0:2101           receive broadcast / unicast datagrams
     #   ntrip://user:pass@caster.example.org:2101/MOUNT
     #   serial:///dev/ttyUSB1?baud=57600   radio modem

@@ -134,8 +134,11 @@ ros2 launch unicore_rtk_driver start.launch.py params_file:=/path/to/params.yaml
 | `param.yaml` | Rover, receiver configuration left unchanged. Same behavior as previous versions. |
 | `rover_rtk.yaml` | UM982 rover. Enables the required outputs and reads corrections from a base over TCP. |
 
-- Send a raw command to the receiver.
+- Send a raw command to the receiver. With `save_config_after_tx_cmd: true` (default) the driver
+  also sends `saveconfig`, which writes the command to the receiver flash. Set it to false to try a
+  command without saving it.
 ```bash
+ros2 param set /my_robot/unicore_rtk_driver save_config_after_tx_cmd false
 ros2 topic pub /my_robot/unicore_rtk_driver/tx_cmd std_msgs/msg/String "data: 'UNIHEADINGA COM3 0.2'" --once
 ```
 
@@ -206,6 +209,27 @@ RTK solution quality:
   `fix_covariance_mode: gst` so the covariance comes directly from the receiver's GST error
   estimate (centimeter level with an RTK fixed solution).
 
+When corrections stop:
+- The receiver decides the solution type; the driver reports it. When corrections stop arriving,
+  the receiver keeps its RTK solution with the last corrections it received, and the error grows
+  as they age. GGA keeps RTK fixed or float until the correction age passes the receiver's RTK
+  timeout, then reports DGPS until the DGPS timeout, then single.
+- Set `rover.rtk_timeout_s` and `rover.dgps_timeout_s` to limit how long old corrections are
+  used. A short RTK timeout makes the solution type follow the link; a long one rides out short
+  dropouts.
+- The receiver's correction age (GGA field 13) is in `/diagnostics` as
+  `receiver correction age s`. `rtcm in age s` is the time since the driver last received a frame;
+  after `rtcm.correction_timeout_s` the driver reports a warning (`no RTCM corrections`).
+
+Using RTK in navigation:
+- Gate on the accuracy and on the correction age, not on the solution type alone. With
+  `fix_covariance_mode: gst` the covariance of `~/fix` follows the receiver's own error estimate.
+- RTK positions are relative to the base position. An error in the base position (for example a
+  short survey-in) shifts every RTK position by the same amount. When the solution falls back to
+  DGPS or single, that offset is lost and the position can jump by up to the base position error.
+- The dual antenna heading is solved between the two rover antennas and does not use the
+  corrections; it stays valid when they stop.
+
 GGA quality to `gps_msgs/GPSStatus`:
 
 | GGA quality | Solution | `status.status` |
@@ -231,7 +255,7 @@ RTCM endpoints:
 | `serial:///dev/ttyX?baud=57600` | Radio modem. |
 | `ntrip://[USER:PASS@]HOST:PORT/MOUNT` | NTRIP v1/v2 caster. The latest GGA is sent periodically for VRS mountpoints. |
 
-Endpoint options are given as a query string, for example `tcp://192.168.1.10:2101?reconnect_s=0.5`.
+Endpoint options are given as a query string, for example `tcp://<base_ip>:2101?reconnect_s=0.5`.
 
 | Option | Default | Applies to | Description |
 |---|---|---|---|

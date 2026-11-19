@@ -9,7 +9,8 @@
 
     rtcm:
       # several inputs = failover: the first one listed that is delivering is used
-      inputs: ['tcp://192.168.1.10:2101']
+      # replace <base_ip> with the address of the base computer
+      inputs: ['tcp://<base_ip>:2101']
 
     # Oldest corrections used for RTK and DGPS, 0 = receiver default (README, Receiver configuration)
     # rover:
