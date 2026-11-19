@@ -163,10 +163,13 @@ class GnssProcessor:
         if 'HPR' in parsed:
             data = parsed['HPR']
             if math.isnan(data['utc_time'][0]):
-                self.log.warn("Unicore Driver - Time in the NMEA HPR sentence is NOT valid")
+                self.log.warn("Unicore Driver - Time in the NMEA HPR sentence is NOT valid",
+                              throttle_duration_sec=5.0)
                 return False
             if data['fix_type'] == 0:
-                self.log.warn("Unicore Driver - NMEA HPR sentence is NOT valid")
+                # no dual antenna heading (fix_type 0), e.g. one antenna blocked
+                self.log.warn("Unicore Driver - NMEA HPR sentence is NOT valid",
+                              throttle_duration_sec=5.0)
                 return False
         return True
 
