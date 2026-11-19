@@ -50,33 +50,8 @@ def test_mode_commands_are_configurable():
     assert rx.configuration_commands(RoverSettings(''), LOGS[:1]) == ['GPGGA 1']
 
 
-def test_unicore_rover_settings_only_when_set():
-    rx = create_receiver('unicore')
-    assert rx.settings_commands(RoverSettings('MODE ROVER')) == []
-    settings = RoverSettings('MODE ROVER', rtk_timeout_s=30, dgps_timeout_s=60,
-                             heading_baseline_cm=100, heading_baseline_tolerance_cm=3)
-    assert rx.settings_commands(settings) == [
-        'CONFIG RTK TIMEOUT 30', 'CONFIG DGPS TIMEOUT 60', 'CONFIG HEADING LENGTH 100 3']
-    assert rx.settings_commands(RoverSettings(heading_baseline_cm=100)) == [
-        'CONFIG HEADING LENGTH 100']
-    # the settings never change the mode and log commands
-    assert rx.configuration_commands(settings, LOGS[:1]) == ['MODE ROVER', 'GPGGA 1']
-
-
-@pytest.mark.parametrize('kwargs', [
-    {'rtk_timeout_s': 1801}, {'dgps_timeout_s': -1}, {'heading_baseline_cm': -5},
-    {'heading_baseline_tolerance_cm': 3},
-])
-def test_invalid_rover_settings(kwargs):
-    with pytest.raises(ValueError):
-        RoverSettings('MODE ROVER', **kwargs)
-
-
 def test_configuration_report():
     rx = create_receiver('unicore')
-    assert rx.config_query_command() == 'CONFIG'
     assert rx.is_config_report('$CONFIG,COM1,CONFIG COM1 460800*65')
     assert not rx.is_config_report('$command,CONFIG,response: OK*54')
-    generic = create_receiver('generic')
-    assert generic.settings_commands(RoverSettings(rtk_timeout_s=30)) == []
-    assert generic.config_query_command() == ''
+    assert not create_receiver('generic').is_config_report('$CONFIG,COM1,CONFIG COM1 460800*65')

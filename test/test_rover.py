@@ -45,10 +45,6 @@ def test_hpr_summary():
     assert parse_hpr(GGA_FIXED) is None
 
 
-def test_invalid_settings_are_rejected():
-    assert rover.main(['--device', '/dev/null_no_receiver', '--rtk-timeout-s', '5000']) == 2
-
-
 def test_status_line_without_inputs():
     r = rover.Rover('/dev/null_no_receiver', 115200, [], Logger('test'))
     line = r.status_line(parse_gga(GGA_SINGLE))
@@ -64,8 +60,9 @@ def test_rover_configures_receiver_forwards_rtcm_and_prints_heading():
     base.bind(('127.0.0.1', 0))
     base.listen(1)
     lines, stop = [], threading.Event()
-    argv = ['--device', os.ttyname(slave), '--configure', '--rtk-timeout-s', '30',
-            '--command', 'CONFIG', '--input', f'tcp://127.0.0.1:{base.getsockname()[1]}']
+    argv = ['--device', os.ttyname(slave), '--configure',
+            '--command', 'CONFIG RTK TIMEOUT 30', '--command', 'CONFIG',
+            '--input', f'tcp://127.0.0.1:{base.getsockname()[1]}']
     t = threading.Thread(target=rover.main, args=(argv, stop, lines.append), daemon=True)
     t.start()
     try:

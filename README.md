@@ -154,32 +154,25 @@ is opened. Nothing is written to receiver flash unless `save_receiver_config: tr
 1. Mode command: `rover.mode_command` (default `MODE ROVER`).
 2. One `<LOG> [<receiver_port>] <period>` per entry of `receiver_logs`. The period is in seconds,
    so `GPGGA:0.1` outputs GGA at 10 Hz.
-3. The rover settings that are not 0, see below.
-4. Each entry of `receiver_commands`, verbatim.
-5. `saveconfig` if `save_receiver_config` is true.
-6. `CONFIG` if `query_receiver_config` is true. The receiver reports its configuration, one
-   `$CONFIG` line per setting, and the driver logs each line (`receiver config: ...`).
+3. Each entry of `receiver_commands`, verbatim.
+4. `saveconfig` if `save_receiver_config` is true.
 
-With `configure_receiver: false` (default) steps 1 and 2 are skipped, which keeps receivers that
-were configured by hand unchanged. The `generic` receiver type never generates commands; only
-`receiver_commands` are sent to it.
+With `configure_receiver: false` (default) only `receiver_commands` are sent, which keeps receivers
+that were configured by hand unchanged. The `generic` receiver type never generates commands.
 
-Rover settings. A value of 0 (default) sends nothing and keeps the receiver's own value.
+Any receiver setting goes in `receiver_commands`. The receiver's reply to each command is logged
+(`receiver replied: ...`). Commonly used UM982 settings, from the Unicore Reference Commands
+Manual R1.13:
 
-| Parameter | Command | Range | Description |
-|---|---|---|---|
-| `rover.rtk_timeout_s` | `CONFIG RTK TIMEOUT` | 1 to 1800 s | Oldest corrections the receiver still uses for an RTK solution |
-| `rover.dgps_timeout_s` | `CONFIG DGPS TIMEOUT` | 1 to 1800 s | Oldest corrections it still uses for a DGPS solution. UM982 default 600 s. |
-| `rover.heading_baseline_cm` | `CONFIG HEADING LENGTH` | cm | Distance between the master and slave antennas, UM982 |
-| `rover.heading_baseline_tolerance_cm` | `CONFIG HEADING LENGTH` | cm | Allowed error of the baseline, sent with `rover.heading_baseline_cm` |
+| Command | Section | Description |
+|---|---|---|
+| `CONFIG RTK TIMEOUT <s>` | 4.41 | Oldest corrections used for an RTK solution, 1 to 1800 s |
+| `CONFIG DGPS TIMEOUT <s>` | 4.12 | Oldest corrections used for a DGPS solution, 1 to 1800 s, UM982 default 600 s |
+| `CONFIG HEADING LENGTH <cm> <tolerance cm>` | 4.17 | Distance between the master and slave antennas |
+| `CONFIG` | 4.1 | Report the configuration, one `$CONFIG` line per setting, logged as `receiver config: ...` |
 
-Commands, defaults and ranges are from the Unicore Reference Commands Manual R1.13, sections 4.1,
-4.12, 4.17 and 4.41. Any other receiver setting goes in `receiver_commands`, for example:
 ```yaml
-    rover:
-      rtk_timeout_s: 30
-      heading_baseline_cm: 100
-    receiver_commands: ['CONFIG RTK RELIABILITY 3 1']
+    receiver_commands: ['CONFIG RTK TIMEOUT 30', 'CONFIG DGPS TIMEOUT 60', 'CONFIG']
 ```
 
 ## RTK rover
@@ -214,9 +207,9 @@ When corrections stop:
   the receiver keeps its RTK solution with the last corrections it received, and the error grows
   as they age. GGA keeps RTK fixed or float until the correction age passes the receiver's RTK
   timeout, then reports DGPS until the DGPS timeout, then single.
-- Set `rover.rtk_timeout_s` and `rover.dgps_timeout_s` to limit how long old corrections are
-  used. A short RTK timeout makes the solution type follow the link; a long one rides out short
-  dropouts.
+- `CONFIG RTK TIMEOUT` and `CONFIG DGPS TIMEOUT` in `receiver_commands` limit how long old
+  corrections are used. A short RTK timeout makes the solution type follow the link; a long one
+  rides out short dropouts.
 - The receiver's correction age (GGA field 13) is in `/diagnostics` as
   `receiver correction age s`. `rtcm in age s` is the time since the driver last received a frame;
   after `rtcm.correction_timeout_s` the driver reports a warning (`no RTCM corrections`).
@@ -277,10 +270,8 @@ python3 -m unicore_rtk_driver.tools.rover --device /dev/ttyUSB0 --configure \
 ```
 - `--configure` sends `MODE ROVER`, `GPGGA 1`, `GPGST 1` and `GPHPR 1` after every connect (receiver working
   memory only; nothing is saved). Without it the receiver is not changed.
-- `--rtk-timeout-s`, `--dgps-timeout-s`, `--heading-baseline-cm` and
-  `--heading-baseline-tolerance-cm` send the rover settings of the node, when given.
-  `--command` sends a raw command after every connect and can be repeated; `--command CONFIG`
-  logs the receiver configuration. Nothing is saved.
+- `--command` sends a raw command after every connect, as `receiver_commands` does, and can be
+  repeated, for example `--command 'CONFIG RTK TIMEOUT 30' --command CONFIG`. Nothing is saved.
 - `--log GPGGA:0.1 --log GPGST:0.1 --log GPHPR:0.1` with `--configure` outputs at 10 Hz.
 - `position`: `no fix`, `single`, `DGPS`, `RTK float`, `RTK fixed`, relative to the base.
   `acc` is the receiver's horizontal standard deviation from GST, sqrt(lat_std^2 + lon_std^2);
@@ -325,7 +316,7 @@ Topic names are relative to the node and can be changed with the `*_topic` param
 
 | Service | Type | Description |
 |---|---|---|
-| `~/configure_receiver` | `std_srvs/Trigger` | Send the receiver configuration built from the current parameter values, independent of `configure_receiver`, then query the configuration. |
+| `~/configure_receiver` | `std_srvs/Trigger` | Send the receiver configuration built from the current parameter values, independent of `configure_receiver`. |
 
 ### Parameters
 
@@ -365,12 +356,7 @@ Receiver:
 | `save_receiver_config` | `false` | Append `saveconfig` to the configuration |
 | `rover.mode_command` | `MODE ROVER` | Rover mode command, for example `MODE ROVER UAV`. Empty sends no mode command. |
 | `receiver_logs` | `['GPGGA:1', 'GPGST:1', 'GPRMC:1', 'GPHPR:1', 'UNIHEADINGA:0.5', 'AGRICA:1']` | Outputs to enable, `LOG:period_s` |
-| `rover.rtk_timeout_s` | `0` | `CONFIG RTK TIMEOUT`, 0 keeps the receiver value. See Receiver configuration. |
-| `rover.dgps_timeout_s` | `0` | `CONFIG DGPS TIMEOUT`, 0 keeps the receiver value |
-| `rover.heading_baseline_cm` | `0` | `CONFIG HEADING LENGTH`, 0 keeps the receiver value |
-| `rover.heading_baseline_tolerance_cm` | `0` | Tolerance sent with `rover.heading_baseline_cm` |
 | `receiver_commands` | `['']` | Additional raw commands sent after the configuration |
-| `query_receiver_config` | `true` | Send `CONFIG` after the configuration and log the reported settings |
 | `save_config_after_tx_cmd` | `true` | Send `saveconfig` after each `~/tx_cmd` command |
 
 RTCM:

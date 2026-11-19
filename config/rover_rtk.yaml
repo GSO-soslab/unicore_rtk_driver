@@ -12,7 +12,5 @@
       # replace <base_ip> with the address of the base computer
       inputs: ['tcp://<base_ip>:2101']
 
-    # Oldest corrections used for RTK and DGPS, 0 = receiver default (README, Receiver configuration)
-    # rover:
-    #   rtk_timeout_s: 30
-    #   dgps_timeout_s: 60
+    # Raw receiver commands sent on every connect (README, Receiver configuration), e.g.
+    # receiver_commands: ['CONFIG RTK TIMEOUT 30', 'CONFIG DGPS TIMEOUT 60', 'CONFIG']
