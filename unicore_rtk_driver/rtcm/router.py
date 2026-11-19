@@ -1,10 +1,9 @@
 """Route RTCM between the receiver and the transports, and keep statistics.
 
-Base:  receiver serial --frames--> RtcmRouter.publish() --> every sink
-Rover: sources --bytes--> RtcmRouter.inject() --frames--> receiver serial
+Sources --bytes--> RtcmRouter.inject() --frames--> receiver serial
 
-Both paths run on the thread that produced the data (serial reader or source
-thread) and write directly to the outputs.
+`inject()` runs on the thread of the source that produced the data and writes
+directly to the receiver.
 
 Incoming bytes are framed per source, and only complete RTCM frames with a
 valid CRC are written to the receiver.  With several sources, frames from the
@@ -18,7 +17,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from unicore_rtk_driver.protocol.framer import FrameType, StreamFramer
 from unicore_rtk_driver.rtcm import rtcm3
-from unicore_rtk_driver.rtcm.transport import Sink, Source
+from unicore_rtk_driver.rtcm.transport import Source
 
 
 class RtcmStats:
@@ -54,9 +53,7 @@ class RtcmRouter:
 
     def __init__(self, logger, failover_timeout_s: float = 5.0):
         self.log = logger
-        self.sinks: List[Sink] = []
         self.sources: List[Source] = []
-        self.outgoing = RtcmStats()
         self.incoming = RtcmStats()
         self.base_station: Optional[Tuple[int, float, float, float]] = None  # id, lat, lon, h
         self._inject: Optional[Callable[[bytes], None]] = None
@@ -67,9 +64,6 @@ class RtcmRouter:
         self.active_source: Optional[int] = None
 
     # ------------------------------------------------------------- set-up
-    def add_sink(self, sink: Sink):
-        self.sinks.append(sink)
-
     def add_source(self, factory: Callable[[Callable[[bytes], None]], Source]):
         """`factory(on_data)` builds the source; its priority is its position."""
         index = len(self.sources)
@@ -80,25 +74,16 @@ class RtcmRouter:
         self._inject = fn
 
     def start(self):
-        for t in self.sinks + self.sources:
+        for t in self.sources:
             t.start()
 
     def stop(self):
-        for t in self.sinks + self.sources:
+        for t in self.sources:
             try:
                 t.stop()
             except Exception as e:  # keep shutting the others down
                 self.log.warn(f'RTCM {t.name}: error on stop: {e}')
 
-    # --------------------------------------------------------- base side
-    def publish(self, frame: bytes):
-        """A complete RTCM frame produced by the local receiver."""
-        self.outgoing.add_frame(frame)
-        self._note_station(frame)
-        for sink in self.sinks:
-            sink.send(frame)
-
-    # -------------------------------------------------------- rover side
     def inject(self, data: bytes, source_index: int = 0):
         """Correction bytes from source `source_index` (lower = preferred)."""
         with self._inject_lock:

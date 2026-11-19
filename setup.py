@@ -18,21 +18,19 @@ setup(
         (os.path.join('share', package_name, 'config'), glob('config/*')),
         (os.path.join('share', package_name, 'udev'), glob('udev/*')),
         (os.path.join('share', package_name, 'scripts'), glob('scripts/*')),
-        (os.path.join('share', package_name, 'systemd'), glob('systemd/*')),
 
     ],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='mingxi',
     maintainer_email='mzhou@uri.edu',
-    description='ROS 2 driver for Unicore UM98x GNSS receivers with RTK base/rover support',
+    description='ROS 2 driver for Unicore UM98x GNSS receivers (RTK rover)',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'unicore_rtk_driver_node = unicore_rtk_driver.driver_node:main',
             'unicore_rtk_probe = unicore_rtk_driver.tools.probe:main',
-            'unicore_rtk_relay = unicore_rtk_driver.tools.relay:main',
         ],
     },
 )

@@ -3,7 +3,7 @@
 <package format="3">
   <name>unicore_rtk_driver</name>
   <version>0.2.0</version>
-  <description>ROS 2 driver for Unicore UM98x GNSS receivers (dual-antenna heading, NMEA) with RTK base/rover support and low-latency RTCM transport (UDP, TCP, serial, NTRIP).</description>
+  <description>ROS 2 driver for Unicore UM98x GNSS receivers (dual-antenna heading, NMEA) as an RTK rover with low-latency RTCM input (UDP, TCP, serial, NTRIP).</description>
   <maintainer email="mzhou@uri.edu">mingxi</maintainer>
   <license>Apache-2.0</license>
 

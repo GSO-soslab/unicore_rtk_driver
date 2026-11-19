@@ -7,7 +7,7 @@ import pytest
 from rtcm_helpers import lla_to_ecef, message, station_1005
 from unicore_rtk_driver.rtcm import rtcm3
 from unicore_rtk_driver.rtcm.router import RtcmRouter
-from unicore_rtk_driver.rtcm.transport import create_sink, create_source, parse_endpoint
+from unicore_rtk_driver.rtcm.transport import create_source, parse_endpoint
 
 
 class Log:
@@ -95,8 +95,9 @@ def test_router_drops_non_rtcm_bytes():
 def test_router_reports_base_station():
     log = Log()
     r = RtcmRouter(log)
+    r.set_injector(lambda frame: None)
     x, y, z = lla_to_ecef(41.5, -71.4, 10.0)
-    r.publish(station_1005(7, x, y, z))
+    r.inject(station_1005(7, x, y, z), 0)
     assert r.base_station[0] == 7
     assert r.base_station[1:3] == pytest.approx((41.5, -71.4), abs=1e-8)
     assert r.base_station[3] == pytest.approx(10.0, abs=2e-4)
@@ -117,63 +118,84 @@ def test_endpoint_parsing():
 
 
 # -------------------------------------------------------------- transports
-def run_pair(sink_uri, source_uri):
-    log, got = Log(), []
-    lock = threading.Lock()
-
-    def on_data(d):
-        with lock:
-            got.append(d)
-    source = create_source(source_uri, log, on_data)
-    sink = create_sink(sink_uri, log)
-    # whichever side listens must start first
-    first, second = (sink, source) if 'tcpserver' in sink_uri else (source, sink)
-    first.start()
-    second.start()
-    try:
-        frames = [message(1074 + 10 * i, 50) for i in range(4)]
-        assert wait_for(lambda: sink.status() in ('ok', 'connected', '1 client(s)'))
-        for f in frames:
-            sink.send(f)
-        assert wait_for(lambda: b''.join(got) == b''.join(frames)), log.lines
-    finally:
-        sink.stop()
-        source.stop()
+FRAMES = [message(1074 + 10 * i, 50) for i in range(4)]
 
 
-def test_udp():
+class Collector:
+    def __init__(self):
+        self.data = b''
+        self.lock = threading.Lock()
+
+    def __call__(self, chunk):
+        with self.lock:
+            self.data += chunk
+
+    def got(self):
+        with self.lock:
+            return self.data
+
+
+def test_udp_source():
     port = free_port(socket.SOCK_DGRAM)
-    run_pair(f'udp://127.0.0.1:{port}', f'udp://127.0.0.1:{port}')
-
-
-def test_tcpserver_sink_to_tcp_client_source():
-    port = free_port()
-    run_pair(f'tcpserver://127.0.0.1:{port}', f'tcp://127.0.0.1:{port}')
-
-
-def test_tcp_client_sink_to_tcpserver_source():
-    port = free_port()
-    run_pair(f'tcp://127.0.0.1:{port}', f'tcpserver://127.0.0.1:{port}')
-
-
-def test_tcpserver_sink_drops_dead_client_and_keeps_serving():
-    port = free_port()
-    log = Log()
-    sink = create_sink(f'tcpserver://127.0.0.1:{port}', log)
-    sink.start()
+    got = Collector()
+    src = create_source(f'udp://127.0.0.1:{port}', Log(), got)
+    src.start()
     try:
-        dead = socket.create_connection(('127.0.0.1', port))
-        live = socket.create_connection(('127.0.0.1', port))
-        assert wait_for(lambda: sink.status() == '2 client(s)')
-        dead.close()
-        for _ in range(50):          # first sends to the closed peer fail
-            sink.send(message(1074, 100))
-        assert wait_for(lambda: sink.status() == '1 client(s)')
-        live.settimeout(1.0)
-        assert live.recv(10)
-        live.close()
+        tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        for f in FRAMES:
+            tx.sendto(f, ('127.0.0.1', port))
+        assert wait_for(lambda: got.got() == b''.join(FRAMES))
+        tx.close()
     finally:
-        sink.stop()
+        src.stop()
+
+
+def test_tcp_client_source_connects_to_a_base_server():
+    port = free_port()
+    server = socket.socket()
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(('127.0.0.1', port))
+    server.listen(1)
+    server.settimeout(3.0)
+    got = Collector()
+    src = create_source(f'tcp://127.0.0.1:{port}?reconnect_s=0.05', Log(), got)
+    src.start()
+    try:
+        conn, _ = server.accept()
+        for f in FRAMES:
+            conn.sendall(f)
+        assert wait_for(lambda: got.got() == b''.join(FRAMES))
+        # the base goes away and comes back: the source reconnects
+        conn.close()
+        conn2, _ = server.accept()
+        conn2.sendall(FRAMES[0])
+        assert wait_for(lambda: got.got().endswith(FRAMES[0]) and len(got.got()) > len(b''.join(FRAMES)))
+        conn2.close()
+    finally:
+        src.stop()
+        server.close()
+
+
+def test_tcpserver_source_accepts_a_base_connecting_in():
+    port = free_port()
+    got = Collector()
+    src = create_source(f'tcpserver://127.0.0.1:{port}', Log(), got)
+    src.start()
+    try:
+        conn = None
+        for _ in range(100):
+            try:
+                conn = socket.create_connection(('127.0.0.1', port), timeout=2.0)
+                break
+            except OSError:
+                time.sleep(0.02)
+        assert conn is not None
+        for f in FRAMES:
+            conn.sendall(f)
+        assert wait_for(lambda: got.got() == b''.join(FRAMES))
+        conn.close()
+    finally:
+        src.stop()
 
 
 def test_ntrip_client_against_fake_caster():
@@ -221,8 +243,6 @@ def test_endpoint_options():
     log = Log()
     src = create_source('tcp://127.0.0.1:1?reconnect_s=0.25', log, lambda d: None)
     assert src.reconnect_s == 0.25
-    sink = create_sink('tcpserver://127.0.0.1:1?send_timeout_s=0.01', log)
-    assert sink.send_timeout_s == 0.01
     ntrip = create_source('ntrip://h:1/M?gga_period_s=3', log, lambda d: None)
     assert ntrip.gga_period == 3.0
     with pytest.raises(ValueError):

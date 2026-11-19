@@ -35,8 +35,8 @@ def test_node_exits_cleanly(signals):
     port = free_port()
     node = subprocess.Popen(
         [sys.executable, '-m', 'unicore_rtk_driver.driver_node', '--ros-args',
-         '-r', '__ns:=/shutdown_test', '-p', 'device:=/dev/null_no_receiver', '-p', 'mode:=base',
-         '-p', f'rtcm.outputs:=["tcpserver://127.0.0.1:{port}"]'],
+         '-r', '__ns:=/shutdown_test', '-p', 'device:=/dev/null_no_receiver',
+         '-p', f'rtcm.inputs:=["tcpserver://127.0.0.1:{port}"]'],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         wait_for_port(port)

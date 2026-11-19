@@ -3,7 +3,8 @@
 ## Introduction
 ROS 2 driver for Unicore UM98x GNSS receivers (UM982 dual antenna heading) and other receivers
 that output NMEA and RTCM 3. The driver publishes position, heading, velocity and GNSS time,
-and supports operation as an RTK rover or as an RTK base station.
+and operates as an RTK rover. RTK base stations are handled by the separate `rtk_base` package
+(https://github.com/GSO-soslab/rtk_base).
 
 - ROS 2 Jazzy
 - Ubuntu 24.04
@@ -12,10 +13,9 @@ and supports operation as an RTK rover or as an RTK base station.
 - Receivers configured with their own tools (for example SparkFun RTK Surveyor) use the `generic`
   receiver type
 
-RTCM corrections are exchanged over UDP, TCP, serial radio or NTRIP directly from the serial
-reader and network threads. They are not routed through ROS topics.
-A base station computer without ROS can forward its receiver's RTCM with the included relay
-(see RTCM relay without ROS).
+RTCM corrections are received over UDP, TCP, serial radio or NTRIP and written to the receiver
+directly from the network threads. They are not routed through ROS topics. The corrections come
+from a base running `rtk_base`, or from an NTRIP caster.
 
 ## Directory structure
 - `unicore_rtk_driver/driver_node.py`: ROS node. Declares parameters, creates topics and services,
@@ -28,21 +28,19 @@ A base station computer without ROS can forward its receiver's RTCM with the inc
   (NMEA XOR, Unicore CRC-32, RTCM CRC-24Q) and sentence parsers.
 - `unicore_rtk_driver/receivers/`: receiver specific configuration commands. `unicore.py` for UM98x,
   `generic.py` for receivers that are configured externally.
-- `unicore_rtk_driver/rtcm/`: RTCM transports (`transport.py`), routing with per source framing and
-  failover (`router.py`), RTCM 3 helpers (`rtcm3.py`).
+- `unicore_rtk_driver/rtcm/`: RTCM input transports (`transport.py`), routing with per source
+  framing and failover (`router.py`), RTCM 3 helpers (`rtcm3.py`).
 - `unicore_rtk_driver/tools/probe.py`: command line tool that identifies what a receiver outputs.
-- `unicore_rtk_driver/tools/relay.py`: RTCM relay for a base station computer without ROS.
 - `config/`: example parameter files.
 - `launch/start.launch.py`: launch file with `namespace`, `node_name` and `params_file` arguments.
 - `udev/`, `scripts/`: udev rule template and installer for stable device names.
-- `systemd/`: service file for the RTCM relay.
 - `test/`: unit tests, regression test against recorded data, fixture extraction tool.
 
 Data flow:
 ```
 receiver -> SerialLink -> StreamFramer -+-> NMEA / Unicore -> GnssProcessor -> ROS topics
                                         |                  \-> ~/nmea, gpsd (UDP)
-                                        +-> RTCM ------------> RtcmRouter -> RTCM outputs
+                                        +-> RTCM (ignored)
 
 RTCM inputs (UDP, TCP, NTRIP, serial) -> RtcmRouter -> SerialLink (written to the receiver)
 ```
@@ -117,9 +115,6 @@ ros2 launch unicore_rtk_driver start.launch.py params_file:=/path/to/params.yaml
 |---|---|
 | `param.yaml` | Rover, receiver configuration left unchanged. Same behavior as previous versions. |
 | `rover_rtk.yaml` | UM982 rover. Enables the required outputs and reads corrections from a base over TCP. |
-| `base_um982.yaml` | UM982 base. Survey-in or fixed position, RTCM served over TCP and UDP. |
-| `base_generic.yaml` | Externally configured base (for example SparkFun RTK Surveyor). RTCM forwarded. |
-| `relay.conf.example` | Arguments for the RTCM relay (no ROS), see RTCM relay without ROS. |
 
 - Send a raw command to the receiver.
 ```bash
@@ -135,32 +130,32 @@ ros2 service call /my_robot/unicore_rtk_driver/configure_receiver std_srvs/srv/T
 With `configure_receiver: true` the driver sends the following commands every time the serial port
 is opened. Nothing is written to receiver flash unless `save_receiver_config: true`.
 
-1. Mode command. Rover: `rover.mode_command` (default `MODE ROVER`). Base: `base.mode_command` if
-   set, otherwise `MODE BASE TIME <base.survey_in_min_duration_s>` or
-   `MODE BASE <lat> <lon> <height>` when `base.use_fixed_position` is true.
-2. Base only: one `RTCM<number> [<receiver_port>] <period>` per entry of `base.rtcm_messages`.
-3. One `<LOG> [<receiver_port>] <period>` per entry of `receiver_logs`.
-4. Each entry of `receiver_commands`, verbatim.
-5. `saveconfig` if `save_receiver_config` is true.
+1. Mode command: `rover.mode_command` (default `MODE ROVER`).
+2. One `<LOG> [<receiver_port>] <period>` per entry of `receiver_logs`.
+3. Each entry of `receiver_commands`, verbatim.
+4. `saveconfig` if `save_receiver_config` is true.
 
 With `configure_receiver: false` (default) only `receiver_commands` are sent, which keeps receivers
 that were configured by hand unchanged. The `generic` receiver type never generates commands.
 
-## RTK base and rover
+## RTK rover
 ```
-base computer                                         vehicle
-receiver -> driver (mode: base) -- tcpserver / udp --> driver (mode: rover) -> receiver
-                                -- serial radio ----->
-NTRIP caster ------------------------------------------> driver (mode: rover, ntrip://...)
+base computer                                              vehicle
+receiver -> rtk_base -- tcpserver / udp --> unicore_rtk_driver (rtcm.inputs) -> receiver
+                     -- serial radio ----->
+NTRIP caster ------------------------------> unicore_rtk_driver (ntrip://...)
 ```
+Base stations (receiver set-up, survey-in, RTCM forwarding, relay without ROS) are described in
+the `rtk_base` package.
 
-- Base: RTCM frames read from the receiver are written to every entry of `rtcm.outputs`. The base
-  station position from RTCM 1005/1006 is logged and reported in `/diagnostics`.
-- Rover: data from each entry of `rtcm.inputs` is framed per source and only complete frames that
-  pass the CRC are written to the receiver. When several inputs are listed, the first listed input
-  that delivered a frame within `rtcm.failover_timeout_s` is used.
+- Data from each entry of `rtcm.inputs` is framed per source and only complete frames that pass the
+  CRC are written to the receiver. When several inputs are listed, the first listed input that
+  delivered a frame within `rtcm.failover_timeout_s` is used.
+- The base station position from RTCM 1005/1006 in the incoming corrections is logged and reported
+  in `/diagnostics`.
 - The measured latency from the base receiver port to the rover receiver port, both nodes on one
-  host over TCP loopback, is about 2.3 ms. This excludes radio and network transmission time.
+  host over TCP loopback, is about 2.3 ms. This excludes radio and network transmission time. It
+  was measured with the previous combined driver; the RTCM transports are unchanged.
 
 RTK solution quality:
 - `sensor_msgs/NavSatFix` reports RTK fixed and RTK float with the same status (`STATUS_GBAS_FIX`).
@@ -187,101 +182,21 @@ GGA quality to `gps_msgs/GPSStatus`:
 
 RTCM endpoints:
 
-| URI | Output (base) | Input (rover) |
-|---|---|---|
-| `udp://HOST:PORT` | One datagram per frame. Broadcast addresses are allowed. | Listen on `HOST:PORT`. `udp://:2101` listens on all interfaces. |
-| `tcpserver://BIND:PORT` | Rovers connect. A client that cannot keep up is disconnected. | A base connects to this port. |
-| `tcp://HOST:PORT` | Connect to a relay or rover. Reconnects automatically. | Connect to a base `tcpserver`. Reconnects automatically. |
-| `serial:///dev/ttyX?baud=57600` | Radio modem. | Radio modem. |
-| `ntrip://[USER:PASS@]HOST:PORT/MOUNT` | Not supported. | NTRIP v1/v2 caster. The latest GGA is sent periodically for VRS mountpoints. |
+| URI | Input |
+|---|---|
+| `udp://HOST:PORT` | Listen on `HOST:PORT`. `udp://:2101` listens on all interfaces. |
+| `tcpserver://BIND:PORT` | A base connects to this port. |
+| `tcp://HOST:PORT` | Connect to a base `tcpserver`. Reconnects automatically. |
+| `serial:///dev/ttyX?baud=57600` | Radio modem. |
+| `ntrip://[USER:PASS@]HOST:PORT/MOUNT` | NTRIP v1/v2 caster. The latest GGA is sent periodically for VRS mountpoints. |
 
 Endpoint options are given as a query string, for example `tcp://192.168.1.10:2101?reconnect_s=0.5`.
 
 | Option | Default | Applies to | Description |
 |---|---|---|---|
 | `reconnect_s` | 2.0 | tcp, serial, ntrip | Wait between connection attempts |
-| `send_timeout_s` | 0.05 | tcp, tcpserver, serial outputs | Maximum time a send may block |
 | `baud` | 57600 | serial | Baud rate |
 | `gga_period_s` | 10 | ntrip | Period of the GGA sent to the caster |
-
-### SparkFun RTK Surveyor as base
-The Surveyor (u-blox ZED-F9P) is configured with its own menu and used with `receiver: generic`
-(`config/base_generic.yaml`). The driver forwards the RTCM it outputs and parses its NMEA.
-
-| Surveyor port | Host device | Carries |
-|---|---|---|
-| Data (4-pin JST, 3.3 V, 115200 baud) | UART, for example `/dev/ttyAMA0` | NMEA from receiver UART1 (internal Serial NMEA Connection switch set to Ext Connector). RTCM after step 2 below. |
-| Configure u-blox (USB-C) | `/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00` | NMEA and RTCM from the receiver USB port. Also charges the Surveyor. |
-| Configure ESP32 (USB-C) | USB serial adapter, 115200 baud | Surveyor configuration menu. |
-| Radio (4-pin JST) | not used | RTCM on receiver UART2, 57600 baud. Pin 1 supplies 3.5 V to 5.5 V; do not connect it to the host. |
-
-Setup:
-1. Base type: open the menu on the Configure ESP32 port (any key), Configure Base, and select
-   Survey-In. A fixed base with wrong coordinates (for example 0, 0, 0) has no fix in base mode and
-   outputs no RTCM 1005. With Survey-In the Surveyor waits for a horizontal accuracy threshold
-   (1 m in current firmware), then surveys until the minimum time and mean accuracy are met.
-2. RTCM on the Data port: with Surveyor firmware v1.1 the receiver had RTCM output disabled on
-   UART1 (`CFG-UART1OUTPROT-RTCM3X = 0`). Enable it through the Configure u-blox port with
-   `ubxtool` (package `gpsd-clients`). The setting is stored in the receiver flash; it was kept
-   after a power cycle and after the update to firmware v4.4.
-   ```bash
-   export UBXOPTS="-f /dev/ttyACM0 -s 115200 -P 27"
-   ubxtool -g CFG-UART1OUTPROT-RTCM3X
-   ubxtool -z CFG-UART1OUTPROT-RTCM3X,1
-   ```
-3. NMEA messages: `~/fix` and `~/gpsfix` are published on GST, which firmware v4.4 does not output
-   by default. In the menu select Configure GNSS Messages, Reset to Surveying Defaults (GGA, GSA,
-   GST, GSV, RMC). Message rates set in this menu apply to the Data port; for the Configure u-blox
-   USB port also select Configure System, Configure RTK operation, Mirror ZED-F9x's UART1 settings
-   to USB.
-4. Set the SETUP switch to Base. After the survey `unicore_rtk_probe` lists RTCM 1005, 1074, 1084,
-   1124 and 1230, and `/diagnostics` shows `rtcm out bytes/s` and the base position decoded from
-   RTCM 1005.
-
-Base RTCM output was verified with firmware v1.1. With firmware v4.4 the message configuration
-above was verified; RTCM output in base mode has not been tested yet.
-
-Firmware updates use the Configure ESP32 port, see the SparkFun RTK firmware documentation. Units
-sold before September 2021 have 4 MB flash and can only be updated over USB (GUI or `esptool`).
-
-The Surveyor uses reference station ID 0. Give each base a different ID when more than one base is
-in use.
-
-### RTCM relay without ROS
-A base station computer that only has to forward corrections does not need ROS. The relay reads
-the receiver's serial port and writes the RTCM frames to the same outputs as `rtcm.outputs`, using
-the same serial link, framing and transports as the node. It needs Python 3 and pyserial only
-(`sudo apt install python3-serial`) and runs from the cloned repository without building it.
-The receiver is not configured by the relay; set up base mode and RTCM output with the receiver's
-own tools.
-
-```bash
-git clone -b jazzy-devel https://github.com/GSO-soslab/unicore_rtk_driver.git
-cd unicore_rtk_driver
-python3 -m unicore_rtk_driver.tools.relay --device /dev/ttyACM0 --baud 115200 \
-    --output tcpserver://0.0.0.0:2101 --output udp://192.168.1.255:2101
-```
-
-Arguments can be kept in a file, one per line (see `config/relay.conf.example`):
-```bash
-python3 -m unicore_rtk_driver.tools.relay @$HOME/rtk/relay.conf
-```
-
-The relay prints a status line every `--status-period` seconds (serial state, RTCM rate, message
-types, output state, base position from RTCM 1005/1006) and warns when no RTCM arrives for
-`--no-rtcm-warning-s` seconds. `systemd/unicore_rtk_relay.service` starts it at boot; edit the user
-and paths in the file before installing it. In a ROS workspace the same tool is available as
-`ros2 run unicore_rtk_driver unicore_rtk_relay`.
-
-| Option | Default | Description |
-|---|---|---|
-| `--device` | required | Receiver serial device |
-| `--baud` | `115200` | Receiver baud rate |
-| `--output` | required | RTCM output URI, repeatable |
-| `--status-period` | `10` | Seconds between status lines, 0 disables them |
-| `--serial-reconnect-s` | `1.0` | Wait between attempts to open the serial port |
-| `--no-rtcm-warning-s` | `10` | Warn when no RTCM arrives for this long |
-| `--log-level` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 
 ## Node: unicore_rtk_driver_node
 
@@ -301,7 +216,7 @@ Topic names are relative to the node and can be changed with the `*_topic` param
 | `~/global_velocity` | `geometry_msgs/TwistStamped` | RMC | East and north velocity from speed and course, `frame_id` = `velocity_frame_id`. |
 | `~/time_ref` | `sensor_msgs/TimeReference` | RMC | GNSS UTC time. |
 | `~/nmea` | `nmea_msgs/Sentence` | all lines | Raw receiver output. Published only when there is a subscriber. |
-| `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | | Serial link, fix status, solution type, satellites used, RTCM rates and age, transport status, base position. |
+| `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | | Serial link, fix status, solution type, satellites used, RTCM input rate and age, transport status, base position from the incoming RTCM. |
 
 ### Subscribed topics
 
@@ -348,7 +263,6 @@ Receiver:
 
 | Parameter | Default | Description |
 |---|---|---|
-| `mode` | `rover` | `rover` or `base` |
 | `receiver` | `unicore` | `unicore` or `generic` |
 | `receiver_port` | `''` | Receiver port named in output commands, for example `COM1`. Empty uses the port the command is received on. |
 | `configure_receiver` | `false` | Send the receiver configuration each time the port is opened |
@@ -358,23 +272,10 @@ Receiver:
 | `receiver_commands` | `['']` | Additional raw commands sent after the configuration |
 | `save_config_after_tx_cmd` | `true` | Send `saveconfig` after each `~/tx_cmd` command |
 
-Base station:
-
-| Parameter | Default | Description |
-|---|---|---|
-| `base.mode_command` | `''` | Base mode command sent verbatim. Empty generates it from the parameters below. |
-| `base.survey_in_min_duration_s` | `120` | Survey-in duration |
-| `base.use_fixed_position` | `false` | Use the fixed position instead of survey-in |
-| `base.fixed_latitude_deg` | `0.0` | Fixed base latitude |
-| `base.fixed_longitude_deg` | `0.0` | Fixed base longitude |
-| `base.fixed_altitude_m` | `0.0` | Fixed base height, in the reference expected by the receiver |
-| `base.rtcm_messages` | `['1006:10', '1033:10', '1074:1', '1084:1', '1094:1', '1124:1']` | RTCM messages to enable, `number:period_s` |
-
 RTCM:
 
 | Parameter | Default | Description |
 |---|---|---|
-| `rtcm.outputs` | `['']` | RTCM outputs, see RTCM endpoints |
 | `rtcm.inputs` | `['']` | RTCM inputs in priority order, see RTCM endpoints |
 | `rtcm.failover_timeout_s` | `5.0` | Time without frames after which the next input is used |
 | `rtcm.correction_timeout_s` | `5.0` | Correction age at which `/diagnostics` reports a warning |
@@ -420,8 +321,6 @@ the same recording. New fixtures can be created from any bag that contains `~/nm
 
 ## Known limitations
 The following have not been verified on hardware yet:
-- UM982 base commands: `MODE BASE TIME`, `MODE BASE <lat> <lon> <height>` (height reference to be
-  confirmed for the firmware in use) and `RTCM<number> [port] <period>`.
 - RTCM input on the same UM982 port that is used for the host connection.
 - SparkFun RTK Surveyor as rover with `receiver: generic`.
 

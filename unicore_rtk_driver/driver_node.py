@@ -6,12 +6,11 @@ Data flow
                  |                                                          |
    SerialLink thread --bytes--> StreamFramer --+-- NMEA / Unicore text --> GnssProcessor --> ROS topics
                                                |                        +-> ~/nmea, gpsd UDP
-                                               +-- RTCM frames --------> RtcmRouter --> sinks (UDP/TCP/serial)
+                                               +-- RTCM frames --------> dropped (base stations: rtk_base)
    RTCM sources (UDP/TCP/NTRIP/serial) --bytes--> RtcmRouter.inject --> SerialLink.write
 
-Operating modes (``mode``): ``rover`` (default) or ``base``.  The receiver
-class (``receiver``) turns the mode and base settings into module commands
-when ``configure_receiver`` is true.  See README for parameters.
+The receiver class (``receiver``) turns the rover settings into module
+commands when ``configure_receiver`` is true.  See README for parameters.
 """
 import logging
 import signal
@@ -33,13 +32,10 @@ from tf2_ros import Buffer, TransformListener
 
 from unicore_rtk_driver.processor import GGA_SOLUTION_NAMES, Config, GnssProcessor
 from unicore_rtk_driver.protocol.framer import FrameType, StreamFramer
-from unicore_rtk_driver.receivers import (BaseStationSettings, OperatingMode, RoverSettings,
-                                          create_receiver, parse_log_list,
-                                          parse_rtcm_message_list)
-from unicore_rtk_driver.receivers.base import DEFAULT_RTCM_MESSAGES
+from unicore_rtk_driver.receivers import RoverSettings, create_receiver, parse_log_list
 from unicore_rtk_driver.receivers.unicore import DEFAULT_LOGS, DEFAULT_ROVER_MODE_COMMAND
 from unicore_rtk_driver.rtcm.router import RtcmRouter
-from unicore_rtk_driver.rtcm.transport import create_sink, create_source
+from unicore_rtk_driver.rtcm.transport import create_source
 from unicore_rtk_driver.serial_link import SerialLink
 
 
@@ -60,7 +56,6 @@ class UnicoreDriver(Node):
                                        self.get_logger(), self._lookup_rotation)
         self.router = RtcmRouter(self.get_logger(), self.p('rtcm.failover_timeout_s'))
         self.receiver = create_receiver(self.p('receiver'), self.p('receiver_port'))
-        self.mode = OperatingMode(self.p('mode'))
 
         self.link = SerialLink(self.p('device'), self.p('baudrate'), self.get_logger(),
                                on_data=self._on_serial_data,
@@ -87,9 +82,8 @@ class UnicoreDriver(Node):
         self.router.start()
         self.link.start()
         self.get_logger().info(
-            f'Unicore Driver - {self.mode.value} mode, receiver={self.receiver.name}, '
-            f'device={self.p("device")}, RTCM out={len(self.router.sinks)} '
-            f'in={len(self.router.sources)}')
+            f'Unicore Driver - receiver={self.receiver.name}, '
+            f'device={self.p("device")}, RTCM in={len(self.router.sources)}')
 
     # ================================================================ params
     def _declare_parameters(self):
@@ -127,7 +121,6 @@ class UnicoreDriver(Node):
         d('strict_validation', False)
         d('heading_use_gnss_time', False)
         # --- receiver
-        d('mode', 'rover')
         d('receiver', 'unicore')
         d('receiver_port', '')
         d('configure_receiver', False)
@@ -136,16 +129,7 @@ class UnicoreDriver(Node):
         d('rover.mode_command', DEFAULT_ROVER_MODE_COMMAND)
         d('receiver_commands', [''])
         d('save_config_after_tx_cmd', True)
-        # --- base station
-        d('base.mode_command', '')
-        d('base.survey_in_min_duration_s', 120)
-        d('base.use_fixed_position', False)
-        d('base.fixed_latitude_deg', 0.0)
-        d('base.fixed_longitude_deg', 0.0)
-        d('base.fixed_altitude_m', 0.0)
-        d('base.rtcm_messages', [f'{m.number}:{m.period_s:g}' for m in DEFAULT_RTCM_MESSAGES])
         # --- RTCM transport
-        d('rtcm.outputs', [''])
         d('rtcm.inputs', [''])
         d('rtcm.failover_timeout_s', 5.0)
         d('rtcm.correction_timeout_s', 5.0)
@@ -163,16 +147,6 @@ class UnicoreDriver(Node):
                      'epe_quality5', 'epe_quality9'):
             setattr(cfg, name, self.p(name))
         return cfg
-
-    def _base_settings(self) -> BaseStationSettings:
-        return BaseStationSettings(
-            mode_command=self.p('base.mode_command').strip(),
-            survey_in_min_duration_s=self.p('base.survey_in_min_duration_s'),
-            use_fixed_position=self.p('base.use_fixed_position'),
-            fixed_latitude_deg=self.p('base.fixed_latitude_deg'),
-            fixed_longitude_deg=self.p('base.fixed_longitude_deg'),
-            fixed_altitude_m=self.p('base.fixed_altitude_m'),
-            rtcm_messages=parse_rtcm_message_list(self.p('base.rtcm_messages')))
 
     def _setup_logging(self):
         # the parsers log through Python logging ('rosout')
@@ -205,16 +179,11 @@ class UnicoreDriver(Node):
     # ================================================================== RTCM
     def _setup_rtcm(self):
         log = self.get_logger()
-        for uri in _non_empty(self.p('rtcm.outputs')):
-            self.router.add_sink(create_sink(uri, log))
         for uri in _non_empty(self.p('rtcm.inputs')):
             self.router.add_source(
                 lambda on_data, uri=uri: create_source(
                     uri, log, on_data, gga_provider=lambda: self.processor.last_gga))
         self.router.set_injector(self.link.write)
-
-        if self.mode is OperatingMode.BASE and not self.router.sinks:
-            log.warn('Base mode without rtcm.outputs: corrections are not sent anywhere')
 
     # ============================================================== receiver
     def _configuration_commands(self, configure: bool):
@@ -222,13 +191,9 @@ class UnicoreDriver(Node):
         then `receiver_commands`, then the save command if requested."""
         cmds = []
         if configure:
-            base = self._base_settings()
             rover = RoverSettings(mode_command=self.p('rover.mode_command').strip())
             cmds += self.receiver.configuration_commands(
-                self.mode, rover, base, parse_log_list(self.p('receiver_logs')))
-            if self.mode is OperatingMode.BASE:
-                self.get_logger().info('Configuring base station: ' +
-                                       ' '.join(self.receiver.describe_base(base)))
+                rover, parse_log_list(self.p('receiver_logs')))
         cmds += _non_empty(self.p('receiver_commands'))
         save = self.receiver.save_configuration_command()
         if cmds and save and self.p('save_receiver_config'):
@@ -267,8 +232,7 @@ class UnicoreDriver(Node):
         stamp = self.get_clock().now().to_msg()
         for frame in self.framer.feed(data):
             if frame.type is FrameType.RTCM:
-                self.router.publish(frame.data)
-                continue
+                continue  # a rover has no use for RTCM from its own receiver
             line = frame.text
             self._send_sentence(line + '\r\n', stamp)
             if self.receiver.is_command_response(line):
@@ -315,9 +279,8 @@ class UnicoreDriver(Node):
 
     # =========================================================== diagnostics
     def _publish_diagnostics(self):
-        out, inc = self.router.outgoing, self.router.incoming
+        inc = self.router.incoming
         timeout = self.p('rtcm.correction_timeout_s')
-        out.roll()
         inc.roll()
         st = DiagnosticStatus()
         st.name = f'{self.get_fully_qualified_name()}: GNSS receiver'
@@ -325,7 +288,6 @@ class UnicoreDriver(Node):
         fix = self.processor.fix_msg
 
         values = [
-            ('mode', self.mode.value),
             ('receiver', self.receiver.name),
             ('serial connected', str(self.link.is_open)),
             ('serial bytes read', str(self.link.bytes_read)),
@@ -333,8 +295,6 @@ class UnicoreDriver(Node):
             ('solution', GGA_SOLUTION_NAMES.get(self.processor.gga_quality, 'unknown')),
             ('satellites used', str(self.processor.num_satellites)),
             ('hdop', f'{self.processor.hdop:.2f}'),
-            ('rtcm out bytes/s', f'{out.rate_bps:.0f}'),
-            ('rtcm out messages', ' '.join(f'{k}:{v}' for k, v in sorted(out.message_counts.items()))),
             ('rtcm in bytes/s', f'{inc.rate_bps:.0f}'),
         ]
         age = inc.age()
@@ -342,7 +302,7 @@ class UnicoreDriver(Node):
         if self.router.base_station:
             sid, lat, lon, h = self.router.base_station
             values.append(('base station', f'id {sid}: {lat:.8f}, {lon:.8f}, {h:.3f} m'))
-        for t in self.router.sinks + self.router.sources:
+        for t in self.router.sources:
             values.append((t.name, t.status()))
 
         st.level, st.message = DiagnosticStatus.OK, 'ok'
@@ -352,8 +312,6 @@ class UnicoreDriver(Node):
             st.level, st.message = DiagnosticStatus.WARN, 'no fix'
         elif self.router.sources and (age is None or age > timeout):
             st.level, st.message = DiagnosticStatus.WARN, 'no RTCM corrections'
-        elif self.mode is OperatingMode.BASE and (out.age() is None or out.age() > timeout):
-            st.level, st.message = DiagnosticStatus.WARN, 'no RTCM from receiver (survey-in running?)'
         st.values = [KeyValue(key=k, value=v) for k, v in values]
 
         arr = DiagnosticArray()

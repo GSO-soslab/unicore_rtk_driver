@@ -14,8 +14,6 @@
     # False: logger used as INFO
     debug: False
 
-    # rover | base
-    mode: rover
     # unicore | generic   (generic = configured with its own tools, e.g. SparkFun RTK Surveyor)
     receiver: unicore
     # Only touch the receiver configuration when asked to.  True: on every

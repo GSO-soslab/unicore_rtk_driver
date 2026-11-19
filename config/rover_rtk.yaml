@@ -4,7 +4,6 @@
     device: /dev/unicore_gps
     baudrate: 115200
 
-    mode: rover
     receiver: unicore
     configure_receiver: True    # MODE ROVER + receiver_logs on every connect
 
