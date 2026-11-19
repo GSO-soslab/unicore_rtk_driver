@@ -244,7 +244,7 @@ Topic names are relative to the node and can be changed with the `*_topic` param
 | `~/global_velocity` | `geometry_msgs/TwistStamped` | RMC | East and north velocity from speed and course, `frame_id` = `velocity_frame_id`. |
 | `~/time_ref` | `sensor_msgs/TimeReference` | RMC | GNSS UTC time. |
 | `~/nmea` | `nmea_msgs/Sentence` | all lines | Raw receiver output. Published only when there is a subscriber. |
-| `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | | Serial link, fix status, solution type, satellites used, RTCM input rate and age, transport status, base position from the incoming RTCM. |
+| `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | | Serial link, fix status, solution type, satellites used, horizontal std (receiver estimate from GST, 1 sigma, m), HDOP, RTCM input rate and age, transport status, base position from the incoming RTCM. |
 
 ### Subscribed topics
 

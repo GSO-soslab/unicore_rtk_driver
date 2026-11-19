@@ -51,6 +51,14 @@ def test_status_from_gga_quality(quality, status):
     assert math.isnan(msg.speed) and math.isnan(msg.err_horz)
 
 
+def test_horizontal_std_from_gst():
+    proc = GnssProcessor(alpha_rise_config(), lambda name, msg: None, Log())
+    assert math.isnan(proc.horizontal_std_m)
+    proc.handle_nmea(gga(4), Time(sec=1763659904, nanosec=0))
+    proc.handle_nmea(GST, Time(sec=1763659904, nanosec=0))
+    assert proc.horizontal_std_m == pytest.approx(math.hypot(0.010, 0.011))
+
+
 def test_rtk_fixed_and_float_share_navsatfix_status():
     fixed, floating = run([gga(4), GST]), run([gga(5), GST])
     # NavSatFix cannot tell them apart; GPSFix can

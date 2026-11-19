@@ -295,6 +295,7 @@ class UnicoreDriver(Node):
             ('fix status', str(fix.status.status)),
             ('solution', GGA_SOLUTION_NAMES.get(self.processor.gga_quality, 'unknown')),
             ('satellites used', str(self.processor.num_satellites)),
+            ('horizontal std m', f'{self.processor.horizontal_std_m:.3f}'),
             ('hdop', f'{self.processor.hdop:.2f}'),
             ('rtcm in bytes/s', f'{inc.rate_bps:.0f}'),
         ]

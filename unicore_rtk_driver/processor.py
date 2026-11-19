@@ -112,6 +112,7 @@ class GnssProcessor:
         self.imu_rotation = None
 
         self.hdop = float('nan')
+        self.horizontal_std_m = float('nan')  # receiver estimate from GST, 1 sigma
         self.gga_quality = None
         self.num_satellites = 0
         self.valid_fix = False
@@ -241,6 +242,7 @@ class GnssProcessor:
 
     def _gst(self, data):
         fix = self.fix_msg
+        self.horizontal_std_m = math.hypot(data['lat_std_dev'], data['lon_std_dev'])
         if self.cfg.strict_validation and not (self._gga_fresh and not math.isnan(self.hdop)):
             self.log.debug("Unicore Driver - GST without a fresh valid GGA, fix not published")
             return False
