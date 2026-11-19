@@ -10,3 +10,8 @@
     rtcm:
       # several inputs = failover: the first one listed that is delivering is used
       inputs: ['tcp://192.168.1.10:2101']
+
+    # Oldest corrections used for RTK and DGPS, 0 = receiver default (README, Receiver configuration)
+    # rover:
+    #   rtk_timeout_s: 30
+    #   dgps_timeout_s: 60

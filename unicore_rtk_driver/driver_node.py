@@ -10,7 +10,10 @@ Data flow
    RTCM sources (UDP/TCP/NTRIP/serial) --bytes--> RtcmRouter.inject --> SerialLink.write
 
 The receiver class (``receiver``) turns the rover settings into module
-commands when ``configure_receiver`` is true.  See README for parameters.
+commands: mode and logs when ``configure_receiver`` is true, the ``rover.*``
+timeouts and heading baseline whenever they are set.  After the commands the
+driver asks the receiver for its configuration and logs the report.  See
+README for parameters.
 """
 import logging
 import math
@@ -62,6 +65,10 @@ class UnicoreDriver(Node):
                                        self.get_logger(), self._lookup_rotation)
         self.router = RtcmRouter(self.get_logger(), self.p('rtcm.failover_timeout_s'))
         self.receiver = create_receiver(self.p('receiver'), self.p('receiver_port'))
+        self._configuration_commands(True)  # invalid settings stop the node here
+        if self.receiver.name == 'generic' and self._rover_settings().has_receiver_settings:
+            self.get_logger().warn('Unicore Driver - rover timeouts and heading baseline '
+                                   'are not sent to a generic receiver')
 
         self.link = SerialLink(self.p('device'), self.p('baudrate'), self.get_logger(),
                                on_data=self._on_serial_data,
@@ -133,6 +140,11 @@ class UnicoreDriver(Node):
         d('save_receiver_config', False)
         d('receiver_logs', [f'{m.name}:{m.period_s:g}' for m in DEFAULT_LOGS])
         d('rover.mode_command', DEFAULT_ROVER_MODE_COMMAND)
+        d('rover.rtk_timeout_s', 0)    # 0 = receiver default
+        d('rover.dgps_timeout_s', 0)
+        d('rover.heading_baseline_cm', 0)
+        d('rover.heading_baseline_tolerance_cm', 0)
+        d('query_receiver_config', True)
         d('receiver_commands', [''])
         d('save_config_after_tx_cmd', True)
         # --- RTCM transport
@@ -192,14 +204,27 @@ class UnicoreDriver(Node):
         self.router.set_injector(self.link.write)
 
     # ============================================================== receiver
+    def _rover_settings(self) -> RoverSettings:
+        return RoverSettings(
+            mode_command=self.p('rover.mode_command').strip(),
+            rtk_timeout_s=self.p('rover.rtk_timeout_s'),
+            dgps_timeout_s=self.p('rover.dgps_timeout_s'),
+            heading_baseline_cm=self.p('rover.heading_baseline_cm'),
+            heading_baseline_tolerance_cm=self.p('rover.heading_baseline_tolerance_cm'))
+
     def _configuration_commands(self, configure: bool):
-        """Commands for the current parameters: mode/logs (if `configure`),
-        then `receiver_commands`, then the save command if requested."""
+        """
+        Build the commands for the current parameters.
+
+        Mode and logs (if `configure`), the rover settings that are set,
+        `receiver_commands`, then the save command if requested.
+        """
+        rover = self._rover_settings()
         cmds = []
         if configure:
-            rover = RoverSettings(mode_command=self.p('rover.mode_command').strip())
             cmds += self.receiver.configuration_commands(
                 rover, parse_log_list(self.p('receiver_logs')))
+        cmds += self.receiver.settings_commands(rover)
         cmds += _non_empty(self.p('receiver_commands'))
         save = self.receiver.save_configuration_command()
         if cmds and save and self.p('save_receiver_config'):
@@ -215,7 +240,18 @@ class UnicoreDriver(Node):
 
     def _on_receiver_connected(self):
         """Runs on the serial thread after each (re)connect."""
-        self._send_commands(self._configuration_commands(self.p('configure_receiver')))
+        try:
+            cmds = self._configuration_commands(self.p('configure_receiver'))
+        except ValueError as e:  # parameters changed at runtime
+            self.get_logger().error(f'Unicore Driver - invalid parameters: {e}')
+            return
+        if self._send_commands(cmds):
+            self._query_config()
+
+    def _query_config(self):
+        query = self.receiver.config_query_command()
+        if query and self.p('query_receiver_config'):
+            self.link.write_line(query)
 
     def _on_configure_request(self, request, response):
         """~/configure_receiver: (re)send the configuration from the current
@@ -231,6 +267,8 @@ class UnicoreDriver(Node):
             return response
         response.success = self._send_commands(cmds)
         response.message = '; '.join(cmds) if response.success else 'serial write failed'
+        if response.success:
+            self._query_config()
         return response
 
     def _on_serial_data(self, data: bytes):
@@ -243,6 +281,9 @@ class UnicoreDriver(Node):
             self._send_sentence(line + '\r\n', stamp)
             if self.receiver.is_command_response(line):
                 self.get_logger().info(f'Unicore Driver - receiver replied: {line}')
+                continue
+            if self.receiver.is_config_report(line):
+                self.get_logger().info(f'Unicore Driver - receiver config: {line}')
                 continue
             try:
                 if frame.type is FrameType.NMEA:

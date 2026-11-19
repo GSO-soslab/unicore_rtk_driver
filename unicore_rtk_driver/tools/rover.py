@@ -16,8 +16,13 @@ The position solution is relative to the base; the heading solution is
 between the receiver's two antennas and does not use the base.
 
 --configure sends the rover mode command and the logs (default GGA, GST and
-HPR, once per second) after every connect.  They go to the receiver's working
-memory only; nothing is saved.
+HPR, once per second) after every connect.  The correction timeouts and the
+heading baseline are sent when given, and each --command as written; the
+receiver's replies, and its configuration report after `--command CONFIG`, are
+logged.  All of it goes to the receiver's working memory only; nothing is saved.
+
+    unicore_rtk_rover --device /dev/ttyUSB0 --input udp://:2101 \
+        --rtk-timeout-s 30 --heading-baseline-cm 100 --command CONFIG
 
 Runs with Python 3 and pyserial (Debian/Ubuntu: python3-serial); ROS is
 optional.
@@ -47,12 +52,14 @@ class Rover:
 
     def __init__(self, device, baudrate, inputs, logger, out=print, configure=False,
                  receiver='unicore', receiver_port='', mode_command=DEFAULT_ROVER_MODE_COMMAND,
-                 logs=None, failover_timeout_s=5.0, serial_reconnect_s=1.0):
+                 logs=None, failover_timeout_s=5.0, serial_reconnect_s=1.0,
+                 settings=None, commands=()):
         self.log = logger
         self.out = out
         self.configure = configure
         self.receiver = create_receiver(receiver, receiver_port)
-        self.rover = RoverSettings(mode_command=mode_command.strip())
+        self.rover = RoverSettings(mode_command=mode_command.strip(), **(settings or {}))
+        self.commands = [c for c in commands if c.strip()]
         self.logs = parse_log_list(logs if logs is not None else DEFAULT_TOOL_LOGS)
         self.last_gga = None
         self._hpr = None
@@ -81,10 +88,13 @@ class Rover:
 
     def _on_connect(self):
         """Run on the serial thread after each (re)connect: configuration, then inputs."""
+        cmds = []
         if self.configure:
-            for cmd in self.receiver.configuration_commands(self.rover, self.logs):
-                self.log.info(f'sending: {cmd}')
-                self.link.write_line(cmd)
+            cmds += self.receiver.configuration_commands(self.rover, self.logs)
+        cmds += self.receiver.settings_commands(self.rover) + self.commands
+        for cmd in cmds:
+            self.log.info(f'sending: {cmd}')
+            self.link.write_line(cmd)
         if not self._inputs_started.is_set():
             self._inputs_started.set()
             self.router.start()
@@ -94,7 +104,7 @@ class Rover:
             if frame.type is not FrameType.NMEA:
                 continue
             line = frame.text
-            if self.receiver.is_command_response(line):
+            if self.receiver.is_command_response(line) or self.receiver.is_config_report(line):
                 self.log.info(f'receiver: {line}')
                 continue
             if not nmea_is_valid(line):
@@ -153,7 +163,7 @@ def parse_args(argv=None):
     parser.add_argument('--configure', action='store_true',
                         help='send the rover mode command and the logs after every connect')
     parser.add_argument('--receiver', choices=['unicore', 'generic'], default='unicore',
-                        help='generic: never send commands to the receiver')
+                        help='generic: generate no commands; --command is sent as written')
     parser.add_argument('--receiver-port', default='',
                         help='receiver port named in the log commands, for example COM1')
     parser.add_argument('--mode-command', default=DEFAULT_ROVER_MODE_COMMAND,
@@ -161,6 +171,17 @@ def parse_args(argv=None):
     parser.add_argument('--log', action='append', metavar='LOG:PERIOD_S',
                         help='receiver log enabled with --configure, repeatable '
                              f'(default: {" ".join(DEFAULT_TOOL_LOGS)})')
+    parser.add_argument('--rtk-timeout-s', type=int, default=0,
+                        help='oldest corrections used for RTK, 1 to 1800 s (default: receiver)')
+    parser.add_argument('--dgps-timeout-s', type=int, default=0,
+                        help='oldest corrections used for DGPS, 1 to 1800 s (default: receiver)')
+    parser.add_argument('--heading-baseline-cm', type=int, default=0,
+                        help='distance between the heading antennas (default: receiver)')
+    parser.add_argument('--heading-baseline-tolerance-cm', type=int, default=0,
+                        help='tolerance of --heading-baseline-cm (default: receiver)')
+    parser.add_argument('--command', action='append', default=[],
+                        help='raw receiver command sent after every connect, repeatable, '
+                             'for example CONFIG to log the receiver configuration')
     parser.add_argument('--failover-timeout-s', type=float, default=5.0)
     parser.add_argument('--serial-reconnect-s', type=float, default=1.0)
     parser.add_argument('--log-level', default='INFO',
@@ -179,7 +200,13 @@ def main(argv=None, stop_event=None, out=None):
                       configure=args.configure, receiver=args.receiver,
                       receiver_port=args.receiver_port, mode_command=args.mode_command,
                       logs=args.log, failover_timeout_s=args.failover_timeout_s,
-                      serial_reconnect_s=args.serial_reconnect_s)
+                      serial_reconnect_s=args.serial_reconnect_s,
+                      settings={'rtk_timeout_s': args.rtk_timeout_s,
+                                'dgps_timeout_s': args.dgps_timeout_s,
+                                'heading_baseline_cm': args.heading_baseline_cm,
+                                'heading_baseline_tolerance_cm':
+                                    args.heading_baseline_tolerance_cm},
+                      commands=args.command)
         rover.start()
     except (ValueError, OSError) as e:
         log.error(f'cannot start: {e}')

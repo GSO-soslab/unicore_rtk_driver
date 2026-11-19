@@ -1,4 +1,4 @@
-"""Tests for the rover tool: GGA/HPR summaries, configuration, RTCM input, status lines."""
+"""Tests for the rover tool: GGA/GST/HPR summaries, configuration, RTCM input, status lines."""
 import os
 import pty
 import select
@@ -45,6 +45,10 @@ def test_hpr_summary():
     assert parse_hpr(GGA_FIXED) is None
 
 
+def test_invalid_settings_are_rejected():
+    assert rover.main(['--device', '/dev/null_no_receiver', '--rtk-timeout-s', '5000']) == 2
+
+
 def test_status_line_without_inputs():
     r = rover.Rover('/dev/null_no_receiver', 115200, [], Logger('test'))
     line = r.status_line(parse_gga(GGA_SINGLE))
@@ -60,8 +64,8 @@ def test_rover_configures_receiver_forwards_rtcm_and_prints_heading():
     base.bind(('127.0.0.1', 0))
     base.listen(1)
     lines, stop = [], threading.Event()
-    argv = ['--device', os.ttyname(slave), '--configure',
-            '--input', f'tcp://127.0.0.1:{base.getsockname()[1]}']
+    argv = ['--device', os.ttyname(slave), '--configure', '--rtk-timeout-s', '30',
+            '--command', 'CONFIG', '--input', f'tcp://127.0.0.1:{base.getsockname()[1]}']
     t = threading.Thread(target=rover.main, args=(argv, stop, lines.append), daemon=True)
     t.start()
     try:
@@ -75,7 +79,8 @@ def test_rover_configures_receiver_forwards_rtcm_and_prints_heading():
             if select.select([master], [], [], 0.1)[0]:
                 received += os.read(master, 4096)
         # the inputs start after the configuration: commands first, then the frames
-        commands = b'MODE ROVER\r\nGPGGA 1\r\nGPGST 1\r\nGPHPR 1\r\n'
+        commands = (b'MODE ROVER\r\nGPGGA 1\r\nGPGST 1\r\nGPHPR 1\r\n'
+                    b'CONFIG RTK TIMEOUT 30\r\nCONFIG\r\n')
         assert received == commands + b''.join(frames)
 
         os.write(master, (HPR + GST + GGA_FIXED).encode())
