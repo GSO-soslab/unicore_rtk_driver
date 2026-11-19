@@ -37,41 +37,10 @@ from unicore_rtk_driver.receivers.unicore import DEFAULT_ROVER_MODE_COMMAND
 from unicore_rtk_driver.rtcm.router import RtcmRouter
 from unicore_rtk_driver.rtcm.transport import create_source
 from unicore_rtk_driver.serial_link import SerialLink
+from unicore_rtk_driver.tools.common import Logger
 
 DEFAULT_TOOL_LOGS = ['GPGGA:1', 'GPGST:1', 'GPHPR:1']
 MAX_AGE_S = 3.0   # accuracy and heading older than this are not shown
-
-
-class Logger:
-    """Python logging with the rclpy-like interface the shared modules use."""
-
-    def __init__(self, name='unicore_rtk_rover'):
-        self._log = logging.getLogger(name)
-        self._last = {}
-        self._lock = threading.Lock()
-
-    def _emit(self, level, msg, throttle_duration_sec=0.0):
-        if throttle_duration_sec:
-            now = time.monotonic()
-            with self._lock:
-                if now - self._last.get((level, msg), -1e9) < throttle_duration_sec:
-                    return
-                self._last[(level, msg)] = now
-        self._log.log(level, msg)
-
-    def debug(self, msg, **kw):
-        self._emit(logging.DEBUG, msg, **kw)
-
-    def info(self, msg, **kw):
-        self._emit(logging.INFO, msg, **kw)
-
-    def warn(self, msg, **kw):
-        self._emit(logging.WARNING, msg, **kw)
-
-    warning = warn
-
-    def error(self, msg, **kw):
-        self._emit(logging.ERROR, msg, **kw)
 
 
 class Rover:
@@ -99,21 +68,26 @@ class Rover:
         self.link = SerialLink(device, baudrate, logger, on_data=self._on_serial_data,
                                on_connect=self._on_connect, reconnect_s=serial_reconnect_s)
         self.router.set_injector(self.link.write)
+        self._inputs_started = threading.Event()
 
     def start(self):
-        self.router.start()
+        # the RTCM inputs start once the receiver port is open (_on_connect)
         self.link.start()
 
     def stop(self):
         self.link.stop()
-        self.router.stop()
+        if self._inputs_started.is_set():
+            self.router.stop()
 
     def _on_connect(self):
-        if not self.configure:
-            return
-        for cmd in self.receiver.configuration_commands(self.rover, self.logs):
-            self.log.info(f'sending: {cmd}')
-            self.link.write_line(cmd)
+        """Run on the serial thread after each (re)connect: configuration, then inputs."""
+        if self.configure:
+            for cmd in self.receiver.configuration_commands(self.rover, self.logs):
+                self.log.info(f'sending: {cmd}')
+                self.link.write_line(cmd)
+        if not self._inputs_started.is_set():
+            self._inputs_started.set()
+            self.router.start()
 
     def _on_serial_data(self, data: bytes):
         for frame in self.framer.feed(data):
@@ -198,7 +172,7 @@ def main(argv=None, stop_event=None, out=None):
     args = parse_args(argv)
     logging.basicConfig(level=args.log_level, stream=sys.stderr,
                         format='%(asctime)s %(levelname)s %(message)s')
-    log = Logger()
+    log = Logger('unicore_rtk_rover')
     try:
         rover = Rover(args.device, args.baud, args.input, log,
                       out=out or (lambda line: print(line, flush=True)),

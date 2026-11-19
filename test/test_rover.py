@@ -9,10 +9,9 @@ import tty
 
 from rtcm_helpers import message, station_1005
 from unicore_rtk_driver.protocol.checksums import nmea_checksum
-from unicore_rtk_driver.protocol.framer import FrameType, StreamFramer
 from unicore_rtk_driver.protocol.solution import parse_gga, parse_gst, parse_hpr
-from unicore_rtk_driver.rtcm import rtcm3
 from unicore_rtk_driver.tools import rover
+from unicore_rtk_driver.tools.common import Logger
 
 
 def nmea(body):
@@ -47,7 +46,7 @@ def test_hpr_summary():
 
 
 def test_status_line_without_inputs():
-    r = rover.Rover('/dev/null_no_receiver', 115200, [], rover.Logger())
+    r = rover.Rover('/dev/null_no_receiver', 115200, [], Logger('test'))
     line = r.status_line(parse_gga(GGA_SINGLE))
     assert line.startswith('17:31:45  position single')
     assert 'acc -' in line and 'corr age -' in line and 'base -' in line
@@ -72,13 +71,12 @@ def test_rover_configures_receiver_forwards_rtcm_and_prints_heading():
         conn.sendall(b'junk' + b''.join(frames))
 
         received, end = b'', time.time() + 5
-        while time.time() < end and received.count(b'\xd3') < 2:
+        while time.time() < end and not all(f in received for f in frames):
             if select.select([master], [], [], 0.1)[0]:
                 received += os.read(master, 4096)
-        assert received.startswith(b'MODE ROVER\r\nGPGGA 1\r\nGPGST 1\r\nGPHPR 1\r\n')
-        got = [rtcm3.message_type(f.data) for f in StreamFramer().feed(received)
-               if f.type is FrameType.RTCM]
-        assert got == [1005, 1074]
+        # the inputs start after the configuration: commands first, then the frames
+        commands = b'MODE ROVER\r\nGPGGA 1\r\nGPGST 1\r\nGPHPR 1\r\n'
+        assert received == commands + b''.join(frames)
 
         os.write(master, (HPR + GST + GGA_FIXED).encode())
         end = time.time() + 5
