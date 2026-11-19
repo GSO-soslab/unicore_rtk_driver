@@ -13,6 +13,7 @@ The receiver class (``receiver``) turns the rover settings into module
 commands when ``configure_receiver`` is true.  See README for parameters.
 """
 import logging
+import math
 import signal
 import socket
 
@@ -42,6 +43,10 @@ from unicore_rtk_driver.serial_link import SerialLink
 
 def _non_empty(values):
     return [v for v in values if v and v.strip()]
+
+
+def _seconds(value):
+    return '-' if math.isnan(value) else f'{value:.1f}'
 
 
 class UnicoreDriver(Node):
@@ -297,6 +302,7 @@ class UnicoreDriver(Node):
             ('satellites used', str(self.processor.num_satellites)),
             ('horizontal std m', f'{self.processor.horizontal_std_m:.3f}'),
             ('hdop', f'{self.processor.hdop:.2f}'),
+            ('receiver correction age s', _seconds(self.processor.correction_age_s)),
             ('rtcm in bytes/s', f'{inc.rate_bps:.0f}'),
         ]
         age = inc.age()

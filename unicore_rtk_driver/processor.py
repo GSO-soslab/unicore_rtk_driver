@@ -26,6 +26,7 @@ from std_msgs.msg import Float32
 
 from unicore_rtk_driver.protocol import nmea_parser, unicore_parser
 from unicore_rtk_driver.protocol.checksums import nmea_is_valid, unicore_is_valid
+from unicore_rtk_driver.protocol.solution import parse_gga
 
 FIX_COVARIANCE_MODES = ('hdop_scaled', 'gst')
 
@@ -113,6 +114,7 @@ class GnssProcessor:
 
         self.hdop = float('nan')
         self.horizontal_std_m = float('nan')  # receiver estimate from GST, 1 sigma
+        self.correction_age_s = float('nan')  # GGA field 13, NaN without corrections
         self.gga_quality = None
         self.num_satellites = 0
         self.valid_fix = False
@@ -183,6 +185,9 @@ class GnssProcessor:
         fix_type = data['fix_type']
         self.gga_quality = fix_type
         self.num_satellites = data['num_satellites']
+        summary = parse_gga(line)
+        age = summary.correction_age_s if summary is not None else None
+        self.correction_age_s = float('nan') if age is None else age
         if fix_type not in self.gps_qualities:
             fix_type = -1
         gps_qual = self.gps_qualities[fix_type]

@@ -59,6 +59,18 @@ def test_horizontal_std_from_gst():
     assert proc.horizontal_std_m == pytest.approx(math.hypot(0.010, 0.011))
 
 
+def test_receiver_correction_age_from_gga():
+    proc = GnssProcessor(alpha_rise_config(), lambda name, msg: None, Log())
+    stamp = Time(sec=1763659904, nanosec=0)
+    assert math.isnan(proc.correction_age_s)
+    proc.handle_nmea(gga(4), stamp)
+    assert proc.correction_age_s == 1.0
+    # no corrections: the age field is empty
+    proc.handle_nmea(nmea('GNGGA,173145.00,4129.4758,N,07125.3116,W,1,24,0.7,16.30,M,'
+                          '-30.39,M,,'), stamp)
+    assert math.isnan(proc.correction_age_s)
+
+
 def test_rtk_fixed_and_float_share_navsatfix_status():
     fixed, floating = run([gga(4), GST]), run([gga(5), GST])
     # NavSatFix cannot tell them apart; GPSFix can
