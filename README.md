@@ -309,6 +309,13 @@ The conventions below match how `alpha_rise_auv` and `wamv_rise` use the driver.
 - `unicore_velocity`, `global_velocity`: east, north, up in `velocity_frame_id`. Set it to
   `<robot>/world` on a namespaced robot.
 
+## Shared code
+The base station package [`rtk_base`](https://github.com/GSO-soslab/rtk_base) contains copies of
+these modules, so that each package can be installed and maintained on its own:
+`protocol/checksums.py`, `protocol/framer.py`, `protocol/nmea_parser.py`, `serial_link.py` and
+`rtcm/rtcm3.py`. Its `fix_processor.py` is derived from `processor.py`. A fix in one of these
+files belongs in both packages.
+
 ## Testing
 ```bash
 colcon test --packages-select unicore_rtk_driver
