@@ -119,7 +119,8 @@ def report(result: ProbeResult, device: str) -> str:
         if not result.has_heading:
             lines.append('  # no heading sentences seen: heading topics will not be published')
         if 'GST' not in result.nmea:
-            lines.append('  # no GST: ~/fix is published on GST; enable it (receiver_logs)')
+            how = '(receiver_logs)' if result.looks_unicore else "with the receiver's own tools"
+            lines.append(f'  # no GST: ~/fix is published on GST; enable it {how}')
     return '\n'.join(lines)
 
 

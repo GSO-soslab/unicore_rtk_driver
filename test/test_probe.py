@@ -35,6 +35,15 @@ def test_generic_base_with_rtcm():
     assert 'configured as a base' in report(r, '/dev/x')
 
 
+def test_missing_gst_hint_matches_receiver_type():
+    hint = 'no GST: ~/fix is published on GST; enable it '
+    generic = analyse(message(1005), 115200)
+    assert hint + "with the receiver's own tools" in report(generic, '/dev/x')
+    unicore = analyse(recorded_bytes(), 115200)
+    unicore.nmea.pop('GST', None)
+    assert hint + '(receiver_logs)' in report(unicore, '/dev/x')
+
+
 def test_wrong_baud_is_noise():
     r = analyse(bytes(range(256)) * 4, 9600)
     assert r.valid_frames == 0
