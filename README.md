@@ -31,6 +31,8 @@ from a base running `rtk_base`, or from an NTRIP caster.
 - `unicore_rtk_driver/rtcm/`: RTCM input transports (`transport.py`), routing with per source
   framing and failover (`router.py`), RTCM 3 helpers (`rtcm3.py`).
 - `unicore_rtk_driver/tools/probe.py`: command line tool that identifies what a receiver outputs.
+- `unicore_rtk_driver/tools/rover.py`: rover without ROS, sends corrections to the receiver and
+  prints its solution and heading (`unicore_rtk_rover`).
 - `config/`: example parameter files.
 - `launch/start.launch.py`: launch file with `namespace`, `node_name` and `params_file` arguments.
 - `udev/`, `scripts/`: udev rule template and installer for stable device names.
@@ -197,6 +199,32 @@ Endpoint options are given as a query string, for example `tcp://192.168.1.10:21
 | `reconnect_s` | 2.0 | tcp, serial, ntrip | Wait between connection attempts |
 | `baud` | 57600 | serial | Baud rate |
 | `gga_period_s` | 10 | ntrip | Period of the GGA sent to the caster |
+
+### Rover without ROS
+`unicore_rtk_rover` runs a rover receiver from a terminal: it takes corrections from the same
+inputs as `rtcm.inputs`, writes them to the receiver and prints one line per GGA. It needs Python 3
+and pyserial only and runs from the cloned repository without building it.
+```bash
+cd unicore_rtk_driver
+python3 -m unicore_rtk_driver.tools.rover --device /dev/ttyUSB0 --configure \
+    --input tcp://<base_ip>:2101
+```
+```
+17:32:30  position RTK float   sats 26  acc 0.084 m  hdop 0.6  corr age 1.0 s  base 0000  rtcm in 402 B/s  heading 113.84 deg (antennas RTK fixed)
+```
+- `--configure` sends `MODE ROVER`, `GPGGA 1`, `GPGST 1` and `GPHPR 1` after every connect (receiver working
+  memory only; nothing is saved). Without it the receiver is not changed.
+- `position`: `no fix`, `single`, `DGPS`, `RTK float`, `RTK fixed`, relative to the base.
+  `acc` is the receiver's horizontal standard deviation from GST, sqrt(lat_std^2 + lon_std^2);
+  `hdop` describes the satellite geometry only (below 1 is excellent), not the accuracy.
+  `corr age` is the age of the corrections the receiver uses; `-` means it uses none. `base` is
+  the station ID they come from.
+- `heading` comes from HPR: the direction from the master antenna to the slave antenna, in
+  degrees from true north. It needs both antennas with a clear sky view and is solved between
+  the two antennas, without the base. `antennas RTK fixed` means the heading is valid, also when
+  the position is still `RTK float` or `single`.
+- Without `--input` the tool only prints the solution. In a ROS workspace it is also
+  `ros2 run unicore_rtk_driver unicore_rtk_rover`.
 
 ## Node: unicore_rtk_driver_node
 

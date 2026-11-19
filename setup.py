@@ -31,6 +31,7 @@ setup(
         'console_scripts': [
             'unicore_rtk_driver_node = unicore_rtk_driver.driver_node:main',
             'unicore_rtk_probe = unicore_rtk_driver.tools.probe:main',
+            'unicore_rtk_rover = unicore_rtk_driver.tools.rover:main',
         ],
     },
 )

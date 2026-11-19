@@ -30,8 +30,9 @@ from std_msgs.msg import Float32, String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformListener
 
-from unicore_rtk_driver.processor import GGA_SOLUTION_NAMES, Config, GnssProcessor
+from unicore_rtk_driver.processor import Config, GnssProcessor
 from unicore_rtk_driver.protocol.framer import FrameType, StreamFramer
+from unicore_rtk_driver.protocol.solution import GGA_SOLUTION_NAMES
 from unicore_rtk_driver.receivers import RoverSettings, create_receiver, parse_log_list
 from unicore_rtk_driver.receivers.unicore import DEFAULT_LOGS, DEFAULT_ROVER_MODE_COMMAND
 from unicore_rtk_driver.rtcm.router import RtcmRouter

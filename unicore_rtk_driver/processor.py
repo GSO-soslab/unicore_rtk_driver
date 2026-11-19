@@ -31,7 +31,7 @@ FIX_COVARIANCE_MODES = ('hdop_scaled', 'gst')
 
 # GGA quality indicator -> gps_msgs/GPSStatus status (gps_msgs 3.1, ROS 2 Jazzy).
 # Dead reckoning (6) and simulation (8) are not GNSS solutions and map to
-# STATUS_NO_FIX; GGA_SOLUTION_NAMES keeps the exact type for diagnostics.
+# STATUS_NO_FIX; protocol.solution.GGA_SOLUTION_NAMES keeps the exact type for diagnostics.
 GGA_TO_GPS_STATUS = {
     0: GPSStatus.STATUS_NO_FIX,
     1: GPSStatus.STATUS_FIX,
@@ -43,12 +43,6 @@ GGA_TO_GPS_STATUS = {
     7: GPSStatus.STATUS_FIX,          # manually entered position, e.g. a fixed base
     8: GPSStatus.STATUS_NO_FIX,       # simulation
     9: GPSStatus.STATUS_WAAS_FIX,
-}
-
-# GGA quality indicator -> name used in diagnostics
-GGA_SOLUTION_NAMES = {
-    0: 'no fix', 1: 'single', 2: 'DGPS', 3: 'PPS', 4: 'RTK fixed', 5: 'RTK float',
-    6: 'dead reckoning', 7: 'manual position', 8: 'simulation', 9: 'SBAS',
 }
 
 
