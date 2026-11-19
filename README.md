@@ -220,18 +220,29 @@ Setup:
    Survey-In. A fixed base with wrong coordinates (for example 0, 0, 0) has no fix in base mode and
    outputs no RTCM 1005. With Survey-In the Surveyor waits for a horizontal accuracy threshold
    (1 m in current firmware), then surveys until the minimum time and mean accuracy are met.
-2. RTCM on the Data port: on the tested unit the receiver had RTCM output disabled on UART1
-   (`CFG-UART1OUTPROT-RTCM3X = 0`). Enable it through the Configure u-blox port with `ubxtool`
-   (package `gpsd-clients`). The setting is stored in the receiver flash and was kept after a power
-   cycle.
+2. RTCM on the Data port: with Surveyor firmware v1.1 the receiver had RTCM output disabled on
+   UART1 (`CFG-UART1OUTPROT-RTCM3X = 0`). Enable it through the Configure u-blox port with
+   `ubxtool` (package `gpsd-clients`). The setting is stored in the receiver flash; it was kept
+   after a power cycle and after the update to firmware v4.4.
    ```bash
    export UBXOPTS="-f /dev/ttyACM0 -s 115200 -P 27"
    ubxtool -g CFG-UART1OUTPROT-RTCM3X
    ubxtool -z CFG-UART1OUTPROT-RTCM3X,1
    ```
-3. Set the SETUP switch to Base. After the survey `unicore_rtk_probe` lists RTCM 1005, 1074, 1084,
+3. NMEA messages: `~/fix` and `~/gpsfix` are published on GST, which firmware v4.4 does not output
+   by default. In the menu select Configure GNSS Messages, Reset to Surveying Defaults (GGA, GSA,
+   GST, GSV, RMC). Message rates set in this menu apply to the Data port; for the Configure u-blox
+   USB port also select Configure System, Configure RTK operation, Mirror ZED-F9x's UART1 settings
+   to USB.
+4. Set the SETUP switch to Base. After the survey `unicore_rtk_probe` lists RTCM 1005, 1074, 1084,
    1124 and 1230, and `/diagnostics` shows `rtcm out bytes/s` and the base position decoded from
    RTCM 1005.
+
+Base RTCM output was verified with firmware v1.1. With firmware v4.4 the message configuration
+above was verified; RTCM output in base mode has not been tested yet.
+
+Firmware updates use the Configure ESP32 port, see the SparkFun RTK firmware documentation. Units
+sold before September 2021 have 4 MB flash and can only be updated over USB (GUI or `esptool`).
 
 The Surveyor uses reference station ID 0. Give each base a different ID when more than one base is
 in use.
