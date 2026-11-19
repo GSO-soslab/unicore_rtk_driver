@@ -1,15 +1,23 @@
-"""Identify what a GNSS receiver on a serial port is sending.
+"""Identify what a GNSS receiver or an RTCM stream is sending.
 
     ros2 run unicore_rtk_driver unicore_rtk_probe /dev/ttyUSB0
     ros2 run unicore_rtk_driver unicore_rtk_probe /dev/ttyUSB0 --baud 115200 --duration 5
     ros2 run unicore_rtk_driver unicore_rtk_probe /dev/ttyUSB0 --query-version
+    ros2 run unicore_rtk_driver unicore_rtk_probe udp://:2101
+    ros2 run unicore_rtk_driver unicore_rtk_probe tcp://<base_ip>:2101 --duration 30
 
-Listens at each baud rate and reports the NMEA sentences, Unicore logs and
-RTCM messages it sees, with checksum results, then suggests driver
+Serial port: listens at each baud rate and reports the NMEA sentences, Unicore
+logs and RTCM messages it sees, with checksum results, then suggests driver
 parameters.  With --query-version it also sends the Unicore query VERSIONA,
 which reads the firmware version and leaves the settings unchanged.
+
+RTCM stream (any rtcm.inputs URI: udp, tcp, tcpserver, ntrip, serial):
+receives through the same transports as the node and reports the message
+types and rates and the base station position.  Nothing is sent, except the
+connection request and login for tcp and ntrip.
 """
 import argparse
+import logging
 import sys
 import time
 from collections import Counter
@@ -20,6 +28,8 @@ import serial
 from unicore_rtk_driver.protocol.checksums import nmea_is_valid, unicore_is_valid
 from unicore_rtk_driver.protocol.framer import FrameType, StreamFramer
 from unicore_rtk_driver.rtcm import rtcm3
+from unicore_rtk_driver.rtcm.transport import create_source
+from unicore_rtk_driver.tools.common import Logger
 
 DEFAULT_BAUDS = (115200, 230400, 460800, 921600, 57600, 38400, 9600)
 HEADING_SOURCES = ('UNIHEADINGA', 'HPR', 'HDT')
@@ -90,6 +100,46 @@ def listen(device: str, baudrate: int, duration: float, query_version: bool) -> 
     return analyse(data, baudrate)
 
 
+def listen_stream(uri: str, duration: float) -> bytes:
+    """Bytes received from an RTCM input URI during `duration` seconds."""
+    chunks = []
+    source = create_source(uri, Logger('unicore_rtk_probe'), chunks.append)
+    source.start()
+    try:
+        time.sleep(duration)
+    finally:
+        source.stop()
+    return b''.join(chunks)
+
+
+def stream_report(uri: str, data: bytes, duration: float) -> str:
+    result = analyse(data, 0)
+    base = None
+    for frame in StreamFramer().feed(data):
+        if frame.type is FrameType.RTCM:
+            arp = rtcm3.station_arp_ecef(frame.data)
+            if arp is not None:
+                base = (arp[0],) + rtcm3.ecef_to_lla(*arp[1:])
+    rates = ', '.join(f'{k} x{v} ({v / duration:.1f}/s)' for k, v in sorted(result.rtcm.items()))
+    lines = [
+        f'RTCM stream {uri} for {duration:g} s',
+        f'  bytes read     : {result.bytes} ({result.dropped_bytes} not part of any frame)',
+        f'  RTCM messages  : {rates or "-"}',
+        '  base station   : ' + (f'id {base[0]}: {base[1]:.8f}, {base[2]:.8f}, {base[3]:.3f} m '
+                                 '(ellipsoid)' if base else '- (no RTCM 1005/1006)'),
+    ]
+    if result.nmea:
+        lines.append('  NMEA           : ' + ', '.join(f'{k} x{v}' for k, v in
+                                                       sorted(result.nmea.items())))
+    lines += [
+        '',
+        'Use as:',
+        f"  rtcm.inputs: ['{uri}']",
+        f'  unicore_rtk_rover --device <rover port> --input {uri}',
+    ]
+    return '\n'.join(lines)
+
+
 def report(result: ProbeResult, device: str) -> str:
     def fmt(counter):
         return ', '.join(f'{k} x{v}' for k, v in sorted(counter.items(), key=str)) or '-'
@@ -126,18 +176,37 @@ def report(result: ProbeResult, device: str) -> str:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    parser.add_argument('device')
+    parser.add_argument('device', help='serial device, or an RTCM input URI such as udp://:2101')
     parser.add_argument('--baud', type=int, action='append',
                         help='baud rate to try (repeatable); default: common rates')
-    parser.add_argument('--duration', type=float, default=3.0, help='seconds per baud rate')
+    parser.add_argument('--duration', type=float,
+                        help='seconds per baud rate (serial, default 3) or listening time '
+                             '(stream, default 10)')
     parser.add_argument('--query-version', action='store_true',
                         help='send the read-only query VERSIONA at each baud rate')
     args = parser.parse_args(argv)
 
+    if '://' in args.device:
+        logging.basicConfig(level=logging.INFO, stream=sys.stderr,
+                            format='%(levelname)s %(message)s')
+        duration = args.duration or 10.0
+        try:
+            data = listen_stream(args.device, duration)
+        except (ValueError, OSError) as e:
+            print(f'Cannot open {args.device}: {e}', file=sys.stderr)
+            return 2
+        if not data:
+            print(f'No data from {args.device} in {duration:g} s.')
+            print('  - base running and sending to this address and port?')
+            print('  - udp: broadcast address of this network, firewall')
+            return 1
+        print(stream_report(args.device, data, duration))
+        return 0
+
     best = None
     for baud in args.baud or DEFAULT_BAUDS:
         try:
-            result = listen(args.device, baud, args.duration, args.query_version)
+            result = listen(args.device, baud, args.duration or 3.0, args.query_version)
         except (serial.SerialException, OSError) as e:
             print(f'Cannot open {args.device}: {e}', file=sys.stderr)
             if 'Permission denied' in str(e):

@@ -30,7 +30,9 @@ from a base running `rtk_base`, or from an NTRIP caster.
   `generic.py` for receivers that are configured externally.
 - `unicore_rtk_driver/rtcm/`: RTCM input transports (`transport.py`), routing with per source
   framing and failover (`router.py`), RTCM 3 helpers (`rtcm3.py`).
-- `unicore_rtk_driver/tools/probe.py`: command line tool that identifies what a receiver outputs.
+- `unicore_rtk_driver/tools/probe.py`: command line tool that identifies what a receiver or an RTCM
+  stream outputs.
+- `unicore_rtk_driver/tools/common.py`: logging for the command line tools.
 - `unicore_rtk_driver/tools/rover.py`: rover without ROS, sends corrections to the receiver and
   prints its solution and heading (`unicore_rtk_rover`).
 - `config/`: example parameter files.
@@ -101,6 +103,20 @@ The receiver is then `/dev/ttyAMA0`. On Raspberry Pi OS, disable the console wit
 ```bash
 ros2 run unicore_rtk_driver unicore_rtk_probe /dev/ttyUSB0
 ros2 run unicore_rtk_driver unicore_rtk_probe /dev/ttyUSB0 --query-version
+```
+
+- Check an RTCM stream before using it as a rover input: any `rtcm.inputs` URI (`udp://`, `tcp://`,
+  `tcpserver://`, `ntrip://`, `serial://`). The tool reports the message types and rates and the
+  base station position, listening for 10 s by default (`--duration`).
+```bash
+ros2 run unicore_rtk_driver unicore_rtk_probe udp://:2101
+ros2 run unicore_rtk_driver unicore_rtk_probe tcp://<base_ip>:2101
+```
+```
+RTCM stream udp://:2101 for 10 s
+  bytes read     : 4098 (0 not part of any frame)
+  RTCM messages  : 1005 x10 (1.0/s), 1074 x10 (1.0/s), 1084 x10 (1.0/s), 1124 x10 (1.0/s), 1230 x1 (0.1/s)
+  base station   : id 0: <lat>, <lon>, <height> m (ellipsoid)
 ```
 
 - Start the driver as a rover with the default parameters.
